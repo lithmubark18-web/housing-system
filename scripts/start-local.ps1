@@ -1,4 +1,4 @@
-# تشغيل النظام محلياً: الخادم الخلفي على 8000 والواجهة على 3000
+﻿# تشغيل النظام محلياً: الخادم الخلفي على 8000 والواجهة على 3000
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $projectRoot

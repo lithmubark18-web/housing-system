@@ -5,7 +5,7 @@ import { extname, join, normalize } from "node:path";
 const ROOT = normalize(process.env.DIST_DIR || join(process.cwd(), "dist"));
 
 // Optional same-origin API proxy for local development: when API_PROXY_TARGET
-// is set (e.g. http://127.0.0.1:8001), any /api/* request is forwarded to the
+// is set (e.g. http://127.0.0.1:8000), any /api/* request is forwarded to the
 // backend. Unset in production, so behaviour there is unchanged.
 const API_PROXY_TARGET = (process.env.API_PROXY_TARGET || "").trim().replace(/\/+$/, "");
 
@@ -89,7 +89,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-const PORT = Number(process.env.PORT) || 3333;
+const PORT = Number(process.env.PORT) || 3444;
 server.listen(PORT, () => {
   console.log(`static-export server: serving ${ROOT} on http://0.0.0.0:${PORT}`);
   if (API_PROXY_TARGET) console.log(`static-export server: proxying /api/* -> ${API_PROXY_TARGET}`);

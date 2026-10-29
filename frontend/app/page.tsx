@@ -242,7 +242,7 @@ export default function LoginPage() {
                         onChange={(event) => setServerUrl(event.target.value)}
                         inputMode="url"
                         autoComplete="url"
-                        placeholder="https://housing-management-api.onrender.com"
+                        placeholder="https://housing-system-api.onrender.com"
                       />
                     </div>
                   </label>

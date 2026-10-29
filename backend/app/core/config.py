@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     data_file: str = "data.json"
     seed_file: str = "seed.json"
 
-    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3333,http://127.0.0.1:3333"
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3444,http://127.0.0.1:3444"
     force_password_change: bool = False
     max_upload_mb: int = 25
     audit_limit: int = 8000

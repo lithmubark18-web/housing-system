@@ -1,4 +1,4 @@
-# بناء تطبيق أندرويد (APK) من واجهة Next.js
+﻿# بناء تطبيق أندرويد (APK) من واجهة Next.js
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location (Join-Path $projectRoot "frontend")

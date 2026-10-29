@@ -1,4 +1,4 @@
-# تقديم ملفات الواجهة المبنية محلياً (frontend/dist)
+﻿# تقديم ملفات الواجهة المبنية محلياً (frontend/dist)
 # الاستخدام: .\scripts\serve-local.ps1 [-Port 3444]
 param(
     [int]$Port = 3444,

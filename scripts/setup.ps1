@@ -1,4 +1,4 @@
-# إعداد بيئة التطوير المحلية لنظام إدارة السكن
+﻿# إعداد بيئة التطوير المحلية لنظام إدارة السكن
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $projectRoot

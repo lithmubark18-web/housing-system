@@ -368,7 +368,7 @@ export default function SettingsPage() {
                     value={serverUrl}
                     onChange={(event) => setServerUrl(event.target.value)}
                     inputMode="url"
-                    placeholder="https://housing-management-api.onrender.com"
+                    placeholder="https://housing-system-api.onrender.com"
                   />
                 </div>
                 <small className="muted">
