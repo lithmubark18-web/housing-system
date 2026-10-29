@@ -360,25 +360,29 @@ export default function SettingsPage() {
               يحفظ التطبيق نسخة محلية للعرض دون إنترنت، ويدعم الدخول برمز PIN على الأجهزة. التعديلات تتطلب الاتصال بالخادم.
             </p>
             <div className="stack">
-              <label className="field">
-                <span>رابط الخادم (API)</span>
-                <div className="input-wrap">
-                  <Server size={19} />
-                  <input
-                    value={serverUrl}
-                    onChange={(event) => setServerUrl(event.target.value)}
-                    inputMode="url"
-                    placeholder="https://housing-system-api.onrender.com"
-                  />
-                </div>
-                <small className="muted">
-                  اتركه فارغاً لاستخدام أصل الصفحة. على أندرويد أدخل الرابط كاملاً مثل
-                  <code> http://192.168.1.10:8000</code>
-                </small>
-              </label>
-              <button type="button" className="secondary-btn" onClick={saveServerUrl}>
-                <Save size={16} /> حفظ رابط الخادم
-              </button>
+              {can(user, "admin.settings") && (
+                <>
+                  <label className="field">
+                    <span>رابط الخادم (API)</span>
+                    <div className="input-wrap">
+                      <Server size={19} />
+                      <input
+                        value={serverUrl}
+                        onChange={(event) => setServerUrl(event.target.value)}
+                        inputMode="url"
+                        placeholder="https://housing-system-api.onrender.com"
+                      />
+                    </div>
+                  </label>
+                  <small className="muted">
+                    اتركه فارغاً لاستخدام أصل الصفحة. على أندرويد أدخل الرابط كاملاً مثل
+                    <code> http://192.168.1.10:8000</code>
+                  </small>
+                  <button type="button" className="secondary-btn" onClick={saveServerUrl}>
+                    <Save size={16} /> حفظ رابط الخادم
+                  </button>
+                </>
+              )}
               <a className="secondary-btn" href={routePath("/about")}>
                 <Smartphone size={16} /> دليل التطبيق
               </a>

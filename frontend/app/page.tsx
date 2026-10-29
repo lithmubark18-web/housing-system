@@ -1,18 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Building2, KeyRound, LockKeyhole, Server, ShieldCheck, UserRound, Wifi, WifiOff } from "lucide-react";
+import { Building2, KeyRound, LockKeyhole, ShieldCheck, UserRound, Wifi, WifiOff } from "lucide-react";
 import { getStoredUser } from "@/lib/api";
 import {
   backendBaseUrl,
   getCachedSnapshot,
-  getConfig,
   hasLocalPin,
-  isNativePlatform,
   isOnline,
   loadLocalSession,
-  normalizeBaseUrl,
-  saveConfig,
   setLocalPin,
   storeLocalSession,
   tryOnlineLogin,
@@ -37,8 +33,6 @@ export default function LoginPage() {
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
   const [online, setOnline] = useState(true);
-  const [serverUrl, setServerUrl] = useState("");
-  const [showServer, setShowServer] = useState(false);
 
   const goHome = (user: OfflineUser) => {
     const target = user.mustChangePassword ? "/change-password" : homeForRole(user);
@@ -47,11 +41,6 @@ export default function LoginPage() {
 
   useEffect(() => {
     setOnline(isOnline());
-    const config = getConfig();
-    setServerUrl(config.server_url || "");
-    if (isNativePlatform() && !config.server_url && !process.env.NEXT_PUBLIC_API_URL) {
-      setShowServer(true);
-    }
     const on = () => setOnline(true);
     const off = () => setOnline(false);
     window.addEventListener("online", on);
@@ -168,19 +157,6 @@ export default function LoginPage() {
 
   const pinReady = phase === "set_pin" ? pins[0].length === 4 && pins[1].length === 4 : pins[0].length === 4;
 
-  function saveServerUrl() {
-    const value = normalizeBaseUrl(serverUrl);
-    saveConfig({ ...getConfig(), server_url: value });
-    setServerUrl(value);
-    setShowServer(false);
-    setError("");
-    setNotice(
-      value
-        ? "تم حفظ رابط الخادم على هذا الجهاز — سجّل الدخول الآن."
-        : "تم مسح رابط الخادم — سيُستخدم أصل الصفحة الحالي.",
-    );
-  }
-
   return (
     <main className="login-shell">
       <section className="login-card">
@@ -224,41 +200,6 @@ export default function LoginPage() {
                 </div>
               </label>
 
-              <button
-                type="button"
-                className="link-btn server-toggle"
-                onClick={() => setShowServer((value) => !value)}
-              >
-                <Server size={14} /> {showServer ? "إخفاء إعدادات الخادم" : "إعدادات الخادم"}
-              </button>
-              {showServer && (
-                <div className="server-config">
-                  <label className="field">
-                    <span>رابط الخادم (API)</span>
-                    <div className="input-wrap">
-                      <Server size={19} />
-                      <input
-                        value={serverUrl}
-                        onChange={(event) => setServerUrl(event.target.value)}
-                        inputMode="url"
-                        autoComplete="url"
-                        placeholder="https://housing-system-api.onrender.com"
-                      />
-                    </div>
-                  </label>
-                  <small className="muted">
-                    اتركه فارغاً لاستخدام أصل الصفحة الحالي. على أندرويد أدخل الرابط كاملاً،
-                    مثال: <code>http://192.168.1.10:8000</code>
-                  </small>
-                  <small className="muted">
-                    الرابط المستخدم حالياً: <code>{backendBaseUrl() || "أصل الصفحة"}</code>
-                  </small>
-                  <button type="button" className="secondary-btn" onClick={saveServerUrl}>
-                    حفظ رابط الخادم
-                  </button>
-                </div>
-              )}
-
               {notice && <div className="alert success">{notice}</div>}
               {error && <div className="alert danger">{error}</div>}
 
@@ -271,13 +212,6 @@ export default function LoginPage() {
                 {loading ? "جارٍ الدخول..." : "تسجيل الدخول"}
               </button>
             </form>
-
-            <div className="demo-box">
-              <strong style={{ color: "var(--text)" }}>ملاحظات الدخول</strong>
-              <span>• الحسابات الحالية تعمل بكلمة المرور السابقة نفسها (123456 افتراضياً في البيانات التجريبية).</span>
-              <span>• يدعم التطبيق العمل دون إنترنت للقراءة فقط بعد أول دخول ناجح وضبط رمز PIN.</span>
-              <span>• عند نسيان كلمة المرور يلزم الاتصال بالشبكة أو مراجعة مدير النظام.</span>
-            </div>
           </>
         ) : (
           <>
