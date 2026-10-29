@@ -16,6 +16,7 @@ import {
   clearCachedSnapshot,
   clearLocalSession,
   getCachedSnapshot,
+  hasLocalPin,
   isOnline,
   loadLocalSession,
   saveCachedSnapshot,
@@ -175,11 +176,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     logoutLocal();
     clearLocalSession();
-    clearCachedSnapshot();
+    // نُبقي النسخة المحلية إن كان للمستخدم رمز PIN — حتى يعمل الدخول دون
+    // إنترنت عبر شاشة الدخول بعد الخروج (البيانات محميّة برمز PIN).
+    const keepOfflineSnapshot = typeof window !== "undefined" && user ? hasLocalPin(user.username) : false;
+    if (!keepOfflineSnapshot) clearCachedSnapshot();
     setUserState(null);
     setData(null);
     router.replace("/");
-  }, [router]);
+  }, [router, user]);
 
   const reload = useCallback(async () => {
     await refresh(true);
