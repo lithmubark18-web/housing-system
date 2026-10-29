@@ -284,6 +284,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <button type="button" className="link-btn" onClick={() => reload()}>
               إعادة المحاولة
             </button>
+            <button type="button" className="link-btn" onClick={() => logout()}>
+              <LogOut size={14} /> خروج
+            </button>
           </div>
         )}
 

@@ -62,6 +62,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [syncedAt, setSyncedAt] = useState<string | null>(null);
   const [online, setOnline] = useState(true);
   const inflight = useRef(false);
+  const offlineRef = useRef(false);
   const mounted = useRef(true);
 
   const applyBootstrap = useCallback((payload: Bootstrap, isOffline: boolean) => {
@@ -81,6 +82,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
     }
     setOffline(isOffline);
+    offlineRef.current = isOffline;
     setSyncedAt(new Date().toISOString());
   }, []);
 
@@ -133,6 +135,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     mounted.current = true;
     setOnline(isOnline());
+    // مرجع لحالة "دون اتصال" ليعيد المحاولة تلقياً عند عودة الخادم دون تمريرها عبر الاعتماديات.
+    let offlineNow = false;
     const goOnline = () => {
       setOnline(true);
       refresh(true).catch(() => {});
@@ -141,8 +145,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener("online", goOnline);
     window.addEventListener("offline", goOffline);
     refresh().catch(() => {});
+    // إعادة محاولة دورية خفيفة كل 15 ثانية عند العمل بحالة "دون اتصال".
+    const timer = setInterval(() => {
+      if (offlineRef.current) refresh(true).catch(() => {});
+    }, 15000);
     return () => {
       mounted.current = false;
+      clearInterval(timer);
       window.removeEventListener("online", goOnline);
       window.removeEventListener("offline", goOffline);
     };
