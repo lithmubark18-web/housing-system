@@ -8,7 +8,6 @@ import {
   Building2,
   ChartColumn,
   CheckCheck,
-  ChevronDown,
   ClipboardList,
   Handshake,
   LayoutDashboard,
@@ -267,8 +266,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <div>
                 <strong>{user?.name}</strong>
                 <small>{roleLabel(user?.roleId, user?.roleName)}</small>
-                <ChevronDown size={14} />
+                <span aria-hidden="true" />
               </div>
+              <button
+                type="button"
+                className="icon-plain danger"
+                title="تسجيل الخروج"
+                aria-label="تسجيل الخروج"
+                onClick={() => logout()}
+              >
+                <LogOut size={14} />
+              </button>
             </div>
           </div>
         </div>
