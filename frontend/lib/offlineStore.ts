@@ -124,10 +124,11 @@ export function saveConfig(config: AppConfig) {
 /** عنوان الخادم الخلفي: المحلي في التطوير، والمضبوط/البيئة في الإنتاج. */
 export function backendBaseUrl(): string {
   if (typeof window === "undefined") return "";
-  if (isLocalPageHost()) return `http://${window.location.hostname}:8000`;
   const cfg = getConfig();
   const raw = normalizeBaseUrl(cfg.server_url || "");
+  // عنوان الخادم المحفوظ من المستخدم له الأولوية حتى على الصفحات المحلية.
   if (raw) return raw;
+  if (isLocalPageHost()) return `http://${window.location.hostname}:8000`;
   const configured = (process.env.NEXT_PUBLIC_API_URL || "").trim().replace(/\/+$/, "");
   if (configured) {
     if (isLocalHostUrl(configured) && !isLocalPageHost()) {

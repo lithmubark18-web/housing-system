@@ -20,7 +20,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-API = os.environ.get("HOUSING_PROD_API", "https://housing-mobile-project.onrender.com/api").rstrip("/")
+API = os.environ.get("HOUSING_PROD_API", "https://housing-system-api.onrender.com/api").rstrip("/")
 USER = os.environ.get("HOUSING_PROD_USER", "admin")
 PASSWORD = os.environ.get("HOUSING_PROD_PASS", "123456")
 
@@ -59,6 +59,28 @@ def main() -> int:
 
     state.pop("tokens", None)
     counts = {k: len(v) for k, v in state.items() if isinstance(v, list)}
+
+    # bootstrap الإنتاجية لا تتضمن كلمات المرور لأسباب أمنية، لذا تُدمج كلمات
+    # المرور من البذرة الحالية (نصية قديمة أو مجزأة scrypt) قبل الكتابة،
+    # وإلا تعطّل تسجيل الدخول المحلي بعد كل سحب.
+    try:
+        previous = json.loads(SEED.read_text(encoding="utf-8")) if SEED.exists() else {}
+        pwmap = {}
+        for user in previous.get("users", []):
+            username = str(user.get("username") or "").strip()
+            if username:
+                pwmap[username] = user.get("passwordHash") or user.get("password") or ""
+        kept = 0
+        for user in state.get("users", []):
+            username = str(user.get("username") or "").strip()
+            has_hash = bool(str(user.get("passwordHash") or "").strip())
+            has_plain = bool(str(user.get("password") or "").strip())
+            if username and not has_hash and not has_plain and pwmap.get(username):
+                user["password"] = pwmap[username]
+                kept += 1
+        print(f"كلمات مرور محفوظة من البذرة السابقة: {kept}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"تنبيه: تعذر دمج كلمات المرور ({exc})")
 
     SNAPSHOTS.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
