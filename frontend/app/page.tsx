@@ -98,9 +98,14 @@ export default function LoginPage() {
       // تعذر الوصول للخادم: نسمح بالدخول المحلي فقط لحساب موجود في النسخة
       // المحفوظة وله رمز PIN مُعدّ مسبقاً على هذا الجهاز.
       const cached = getCachedSnapshot();
-      const known = cached?.bootstrap?.users?.find(
-        (item) => item.username.toLowerCase() === username.trim().toLowerCase(),
-      );
+      // النسخة الكاملة (مدير/موظف) تضع كل المستخدمين في users، بينما نسخة
+      // المتعهد المخصَّصة تضع المستخدم الحالي فقط في user. نبحث في كليهما.
+      const wanted = username.trim().toLowerCase();
+      const known =
+        cached?.bootstrap?.users?.find((item) => item.username.toLowerCase() === wanted) ||
+        (cached?.bootstrap?.user?.username?.toLowerCase() === wanted
+          ? cached.bootstrap.user
+          : undefined);
       if (!cached || !known) {
         setError(
           `تعذر الاتصال بالخادم (${backendBaseUrl() || "بدون رابط"}). لا توجد نسخة محفوظة لهذا الحساب — سجّل الدخول عبر الشبكة أولاً.`,
