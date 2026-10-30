@@ -338,7 +338,7 @@ export default function SettingsPage() {
               <li>
                 <ShieldCheck size={16} />
                 <span>الإصدار</span>
-                <Badge tone="muted">v{data.meta?.version || "2.0.0"}</Badge>
+                <Badge tone="muted">v{data.meta?.version || "2.1.0"}</Badge>
               </li>
               <li>
                 <RefreshCw size={16} />

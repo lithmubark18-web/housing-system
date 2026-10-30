@@ -290,7 +290,7 @@ export default function LoginPage() {
           {online ? <Wifi size={14} /> : <WifiOff size={14} />}
           <span>{online ? "الخادم متاح" : "وضع دون إنترنت"}</span>
           <span className="dot-sep">·</span>
-          <span>الإصدار 2.0.0</span>
+          <span>الإصدار 2.1.0</span>
         </div>
       </section>
     </main>

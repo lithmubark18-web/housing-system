@@ -312,7 +312,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         {children}
 
         <footer className="app-footer">
-          <span>نظام إدارة سكن الموظفين · الإصدار {data?.meta?.version || "2.0.0"}</span>
+          <span>نظام إدارة سكن الموظفين · الإصدار {data?.meta?.version || "2.1.0"}</span>
           <span>{data?.meta?.serverTime ? `وقت الخادم: ${timeAgo(data.meta.serverTime)}` : ""}</span>
         </footer>
       </main>
