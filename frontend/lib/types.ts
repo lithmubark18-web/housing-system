@@ -140,6 +140,7 @@ export type Contractor = {
   id: string;
   name: string;
   contractorType?: string;
+  department?: string;
   contactPhone?: string;
   contactEmail?: string;
   status?: string;
@@ -165,8 +166,9 @@ export type ContractorRequest = {
   buildingId?: string | null;
   bedId?: string | null;
   reason?: string;
-  stage: "housing" | "security" | "visitor" | "done" | "rejected";
+  stage: "department" | "housing" | "security" | "visitor" | "done" | "rejected";
   createdAt: string;
+  departmentApprover?: string;
   housingApprover?: string;
   securityApprover?: string;
   visitorApprover?: string;
@@ -174,7 +176,7 @@ export type ContractorRequest = {
   reviewNotes?: string;
   submittedBy?: string;
   history?: Array<{ at: string; action: string; stage: string; by: string; notes?: string }>;
-  contractor?: { id: string; name: string };
+  contractor?: { id: string; name: string; department?: string };
   stageLabel?: string;
   isAdd?: boolean;
   isPending?: boolean;

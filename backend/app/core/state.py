@@ -66,7 +66,15 @@ SYSTEM_USERS: list[dict[str, Any]] = [
         "password": "123456",
         "role": "visitorSupervisor",
         "roleId": "r_visitor",
-    }
+    },
+    {
+        "id": "demo-dept-manager-0000000000000001",
+        "name": "مدير إدارة المتعهد/المقاول",
+        "username": "dept_manager",
+        "password": "123456",
+        "role": "deptManager",
+        "roleId": "r_dept_manager",
+    },
 ]
 
 
@@ -194,6 +202,49 @@ def _normalize_users(data: dict[str, Any]) -> bool:
     return changed
 
 
+# ---------------------------------------------------------------------------
+# إدارات المتعهدين — تُحدد تلقائياً من اسم المتعهد عند غيابها فقط
+# (لا تتجاوز تعديل المدير اليدوي).
+# ---------------------------------------------------------------------------
+CONTRACTOR_DEPARTMENTS: tuple[str, ...] = (
+    "إدارة الشؤون",
+    "إدارة التخطيط",
+    "إدارة التعبئة",
+    "إدارة الصيانة",
+)
+
+DEPARTMENT_KEYWORDS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("مطعم", "بوفية", "بوفيه", "زراع", "نظاف", "حلاق", "حلاقة", "صالون"), "إدارة الشؤون"),
+    (("دكة تحميل", "دكّة", "دكة", "تحميل"), "إدارة التخطيط"),
+    (("تعبئة", "تعبئ"), "إدارة التعبئة"),
+)
+
+
+def contractor_department_for_name(name: str) -> str:
+    text = str(name or "").strip()
+    for keywords, department in DEPARTMENT_KEYWORDS:
+        if any(keyword in text for keyword in keywords):
+            return department
+    return "إدارة الصيانة"
+
+
+def _ensure_contractors_departments(data: dict[str, Any]) -> bool:
+    changed = False
+    departments = set(CONTRACTOR_DEPARTMENTS)
+    for contractor in data.get("contractors", []):
+        if not isinstance(contractor, dict):
+            continue
+        current = str(contractor.get("department") or "").strip()
+        if current in departments:
+            continue
+        if current:
+            contractor["department"] = current
+        else:
+            contractor["department"] = contractor_department_for_name(str(contractor.get("name") or ""))
+        changed = True
+    return changed
+
+
 def normalize_state(data: dict[str, Any]) -> bool:
     changed = False
     if not isinstance(data, dict):
@@ -223,6 +274,7 @@ def normalize_state(data: dict[str, Any]) -> bool:
     changed = _ensure_users(data) or changed
     changed = _migrate_passwords(data) or changed
     changed = _normalize_users(data) or changed
+    changed = _ensure_contractors_departments(data) or changed
     return changed
 
 

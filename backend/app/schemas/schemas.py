@@ -42,6 +42,7 @@ class BulkAssignRequest(BaseModel):
 class ApproveRequest(BaseModel):
     notes: str = ""
     employeeCode: str = ""
+    bedId: str = ""
 
 
 class RejectRequest(BaseModel):

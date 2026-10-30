@@ -113,6 +113,7 @@ export function toneClass(tone: Tone): string {
 }
 
 export const STAGE_LABELS: Record<string, string> = {
+  department: "اعتماد الإدارة",
   housing: "اعتماد السكن",
   security: "الاعتماد الأمني",
   visitor: "اعتماد الزوار",

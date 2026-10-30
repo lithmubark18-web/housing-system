@@ -19,10 +19,12 @@ from app.services.admin import (
 from app.services.common import ServiceError, clean_str, paged
 from app.services.contractor_requests import request_payload
 from app.services.housing import (
+    building_by_id,
     contractor_by_id,
     contractor_payload,
     contractor_stats,
     residents_for_contractor,
+    room_by_id,
 )
 
 router = APIRouter(prefix="/api/contractors", tags=["contractors"])
@@ -166,6 +168,33 @@ def unlink_worker(
             raise HTTPException(status_code=404, detail="العامل غير مرتبط بهذا المتعهد")
         unlink_resident(data, resident, user)
         return {"ok": True, "message": "تم فصل العامل عن المتعهد"}
+
+
+@router.get("/{contractor_id}/free-beds")
+def get_free_beds(
+    contractor_id: str,
+    user: dict[str, Any] = Depends(require_any_permission("requests.supervise", "housing.manage")),
+):
+    """الأسرّة الفعلية المتاحة لدى المتعهد — يستخدمها مشرف السكن لتحديد الغرفة/السرير."""
+    data = store.read()
+    contractor = contractor_by_id(data, contractor_id)
+    if not contractor:
+        raise HTTPException(status_code=404, detail="المتعهد غير موجود")
+    from app.services.housing import free_beds_for_contractor
+
+    beds = []
+    for bed in free_beds_for_contractor(data, contractor_id):
+        room = room_by_id(data, bed.get("roomId"))
+        building = building_by_id(data, (room or {}).get("buildingId"))
+        beds.append({
+            "id": bed.get("id"),
+            "label": clean_str(bed.get("label")),
+            "roomId": (room or {}).get("id"),
+            "roomName": clean_str((room or {}).get("name")),
+            "buildingId": (building or {}).get("id"),
+            "buildingName": clean_str((building or {}).get("name")),
+        })
+    return {"items": beds, "total": len(beds)}
 
 
 @router.get("/{contractor_id}/portal")

@@ -422,11 +422,29 @@ export function createContractorRequest(payload: Record<string, unknown>) {
   return request<ContractorRequest>("/api/contractor-requests", { method: "POST", body: payload });
 }
 
-export function approveContractorRequest(id: string, stage: string, payload: { employeeCode?: string; notes?: string } = {}) {
+export function approveContractorRequest(
+  id: string,
+  stage: string,
+  payload: { employeeCode?: string; notes?: string; bedId?: string } = {},
+) {
   return request<ContractorRequest>(`/api/contractor-requests/${encodeURIComponent(id)}/approve-${encodeURIComponent(stage)}`, {
     method: "POST",
     body: payload,
   });
+}
+
+export function listContractorFreeBeds(contractorId: string) {
+  return request<{
+    items: Array<{
+      id: string;
+      label: string;
+      roomId: string | null;
+      roomName: string;
+      buildingId: string | null;
+      buildingName: string;
+    }>;
+    total: number;
+  }>(`/api/contractors/${encodeURIComponent(contractorId)}/free-beds`);
 }
 
 export function rejectContractorRequest(id: string, notes?: string) {

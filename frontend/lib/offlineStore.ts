@@ -131,11 +131,11 @@ export function backendBaseUrl(): string {
   const raw = normalizeBaseUrl(cfg.server_url || "");
   // عنوان الخادم المحفوظ من المستخدم له الأولوية حتى على الصفحات المحلية.
   if (raw) return raw;
-  if (isLocalPageHost()) return `http://${window.location.hostname}:8000`;
+  if (isLocalPageHost()) return `http://${window.location.hostname}:8444`;
   const configured = (process.env.NEXT_PUBLIC_API_URL || "").trim().replace(/\/+$/, "");
   if (configured) {
     if (isLocalHostUrl(configured) && !isLocalPageHost()) {
-      return `http://${window.location.hostname}:${new URL(configured).port || "8000"}`;
+      return `http://${window.location.hostname}:${new URL(configured).port || "8444"}`;
     }
     return normalizeBaseUrl(configured);
   }

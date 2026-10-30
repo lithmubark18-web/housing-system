@@ -21,7 +21,7 @@ from app.services.contractor_requests import (
 
 router = APIRouter(prefix="/api/contractor-requests", tags=["contractor-requests"])
 
-ANY_STAGE = ("requests.supervise", "requests.security", "requests.visitor")
+ANY_STAGE = ("requests.supervise", "requests.security", "requests.visitor", "requests.department")
 
 
 def _scope(data: dict[str, Any], user: dict[str, Any]) -> dict[str, Any] | None:
@@ -146,6 +146,7 @@ def approve(
             user,
             employee_code=payload.employeeCode,
             notes=payload.notes,
+            bed_id=payload.bedId,
         )
         return request_payload(data, item)
 
@@ -169,6 +170,7 @@ def approve_legacy(
             user,
             employee_code=payload.employeeCode,
             notes=payload.notes,
+            bed_id=payload.bedId,
         )
         return request_payload(data, item)
 

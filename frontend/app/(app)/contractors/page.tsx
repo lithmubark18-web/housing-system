@@ -62,9 +62,17 @@ const CONTRACTOR_TYPES = [
   { value: "other", label: "أخرى" },
 ];
 
+const CONTRACTOR_DEPARTMENTS = [
+  "إدارة الشؤون",
+  "إدارة التخطيط",
+  "إدارة التعبئة",
+  "إدارة الصيانة",
+];
+
 const EMPTY_CONTRACTOR = {
   name: "",
   contractorType: "general",
+  department: "",
   contactPhone: "",
   contactEmail: "",
   status: "active",
@@ -181,6 +189,7 @@ export default function ContractorsPage() {
     setDraft({
       name: contractor.name,
       contractorType: contractor.contractorType || "general",
+      department: contractor.department || "",
       contactPhone: contractor.contactPhone || "",
       contactEmail: contractor.contactEmail || "",
       status: contractor.status || "active",
@@ -208,6 +217,7 @@ export default function ContractorsPage() {
       const payload = {
         name: draft.name.trim(),
         contractorType: draft.contractorType,
+        department: draft.department,
         contactPhone: draft.contactPhone.trim(),
         contactEmail: draft.contactEmail.trim(),
         status: draft.status,
@@ -363,6 +373,7 @@ export default function ContractorsPage() {
                 <tr>
                   <th>المتعهد</th>
                   <th>النوع</th>
+                  <th>الإدارة</th>
                   <th>المباني</th>
                   <th>العمال / السعة</th>
                   <th>الإشغال</th>
@@ -384,6 +395,7 @@ export default function ContractorsPage() {
                         </button>
                       </td>
                       <td>{typeLabel(contractor.contractorType)}</td>
+                      <td>{contractor.department ? <Badge tone="info">{contractor.department}</Badge> : <span className="muted">—</span>}</td>
                       <td>
                         <div className="chip-row">
                           {(contractor.buildingNames || []).slice(0, 3).map((name) => (
@@ -446,6 +458,7 @@ export default function ContractorsPage() {
             <InfoGrid
               items={[
                 { label: "النوع", value: typeLabel(detail.contractorType) },
+                { label: "الإدارة", value: detail.department || "—" },
                 { label: "الحالة", value: <Badge tone={detail.status === "inactive" ? "bad" : "good"}>{detail.status === "inactive" ? "موقوف" : "نشط"}</Badge> },
                 { label: "الجوال", value: detail.contactPhone || "—" },
                 { label: "البريد", value: detail.contactEmail || "—" },
@@ -547,6 +560,14 @@ export default function ContractorsPage() {
           </Field>
           <Field label="نوع المتعهد">
             <Select value={draft.contractorType} onChange={(event) => setDraft({ ...draft, contractorType: event.target.value })} options={CONTRACTOR_TYPES} />
+          </Field>
+          <Field label="الإدارة" required hint="تحدد مسار اعتماد الطلبات — مدير الإدارة يراجعها قبل مشرف الأمن">
+            <Select
+              value={draft.department}
+              onChange={(event) => setDraft({ ...draft, department: event.target.value })}
+              placeholder="اختر الإدارة..."
+              options={CONTRACTOR_DEPARTMENTS.map((department) => ({ value: department, label: department }))}
+            />
           </Field>
           <Field label="الحالة">
             <Select

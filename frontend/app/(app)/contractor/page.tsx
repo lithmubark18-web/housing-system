@@ -43,7 +43,6 @@ type TabId = "workers" | "registered" | "requests";
 const EMPTY_REQUEST = {
   requestType: "new_worker",
   workerName: "",
-  employeeCode: "",
   jobTitle: "",
   workerCardNumber: "",
   workerBirthDate: "",
@@ -122,7 +121,6 @@ export default function ContractorPortalPage() {
         contractorId: portal.contractor.id,
         requestType: draft.requestType,
         workerName: draft.workerName.trim(),
-        employeeCode: draft.employeeCode.trim() || undefined,
         jobTitle: draft.jobTitle.trim() || undefined,
         workerCardNumber: draft.workerCardNumber.trim() || undefined,
         workerBirthDate: draft.workerBirthDate || undefined,
@@ -161,7 +159,7 @@ export default function ContractorPortalPage() {
       <PageHead
         eyebrow="بوابة المتعهد"
         title={portal.contractor.name}
-        subtitle={`${formatNumber(stats?.workerCount || 0)} عامل · ${formatNumber(stats?.freeQuota || 0)} شاغر تعاقدي · ${formatNumber(pending.length)} طلب معلّق`}
+        subtitle={`${portal.contractor.department ? `${portal.contractor.department} · ` : ""}${formatNumber(stats?.workerCount || 0)} عامل · ${formatNumber(stats?.freeQuota || 0)} شاغر تعاقدي · ${formatNumber(pending.length)} طلب معلّق`}
         actions={
           <div className="head-actions">
             <button type="button" className="secondary-btn" onClick={() => load()} disabled={loading || offline}>
@@ -212,13 +210,12 @@ export default function ContractorPortalPage() {
             <div className="table-scroll">
               <table className="residents-table">
                 <thead>
-                  <tr><th>العامل</th><th>الرقم الوظيفي</th><th>المسمى</th><th>الموقع</th><th>الحالة</th><th>البطاقة</th></tr>
+                  <tr><th>العامل</th><th>المسمى</th><th>الموقع</th><th>الحالة</th><th>البطاقة</th></tr>
                 </thead>
                 <tbody>
                   {workers.map((worker) => (
                     <tr key={worker.id}>
                       <td><strong>{worker.name}</strong><small className="block-note">{worker.company}</small></td>
-                      <td>{worker.employeeCode || "—"}</td>
                       <td>{worker.jobTitle || "—"}</td>
                       <td>{worker.location || "غير مسكن"}</td>
                       <td><Badge tone={statusTone(worker.attendanceStatus || worker.baseStatus)}>{worker.attendanceStatus || worker.baseStatus || "—"}</Badge></td>
@@ -240,7 +237,7 @@ export default function ContractorPortalPage() {
             <div className="table-scroll">
               <table className="residents-table">
                 <thead>
-                  <tr><th>الاسم</th><th>الرقم الوظيفي</th><th>المسمى</th><th>الحالة</th><th>البوابة</th><th>السرير</th></tr>
+                  <tr><th>الاسم</th><th>المسمى</th><th>الحالة</th><th>البوابة</th><th>السرير</th></tr>
                 </thead>
                 <tbody>
                   {registered.map((worker) => {
@@ -248,9 +245,9 @@ export default function ContractorPortalPage() {
                     return (
                       <tr key={worker.id}>
                         <td><strong>{worker.fullName}</strong><small className="block-note">{worker.birthPlace || "—"}</small></td>
-                        <td>{worker.employeeCode || "—"}</td>
                         <td>{worker.jobTitle || "—"}</td>
-                        <td><Badge tone={statusTone(worker.status)}>{worker.status === "assigned" ? "مسكّن" : worker.status === "removed" ? "مستبعد" : worker.status || "—"}</Badge></td>
+                        <td><Badge tone={statusTone(worker.status)}>
+{worker.status === "assigned" ? "مسكّن" : worker.status === "removed" ? "مستبعد" : worker.status || "—"}</Badge></td>
                         <td><Badge tone={worker.gateStatus === "approved" ? "good" : "muted"}>{worker.gateStatus === "approved" ? "معتمد" : worker.gateStatus || "—"}</Badge></td>
                         <td>{located?.location || (worker.bedId ? "مسكّن" : "—")}</td>
                       </tr>
@@ -276,7 +273,7 @@ export default function ContractorPortalPage() {
                 <tbody>
                   {requests.map((request) => (
                     <tr key={request.id}>
-                      <td><strong>{request.workerName}</strong><small className="block-note">{request.workerCardNumber || request.employeeCode || "—"}</small></td>
+                      <td><strong>{request.workerName}</strong><small className="block-note">{request.workerCardNumber || request.jobTitle || "—"}</small></td>
                       <td><Badge tone={request.requestType === "new_worker" ? "info" : "warn"}>{request.typeLabel || (request.requestType === "new_worker" ? "إضافة عامل" : "استبعاد عامل")}</Badge></td>
                       <td><Badge tone={statusTone(request.stage)} dot>{request.stageLabel || stageLabel(request.stage)}</Badge></td>
                       <td>{request.bedLabel ? `${request.bedLabel}${request.roomName ? ` · ${request.roomName}` : ""}` : "—"}</td>
@@ -317,7 +314,7 @@ export default function ContractorPortalPage() {
           <Field label="نوع الطلب" required>
             <Select
               value={draft.requestType}
-              onChange={(event) => setDraft({ ...draft, requestType: event.target.value, workerName: "", employeeCode: "", workerCardNumber: "", workerBirthDate: "", workerBirthPlace: "" })}
+              onChange={(event) => setDraft({ ...draft, requestType: event.target.value, workerName: "", workerCardNumber: "", workerBirthDate: "", workerBirthPlace: "" })}
               options={[
                 { value: "new_worker", label: "إضافة عامل" },
                 { value: "remove_worker", label: "استبعاد عامل" },
@@ -334,21 +331,17 @@ export default function ContractorPortalPage() {
                   setDraft({
                     ...draft,
                     workerName: worker.name,
-                    employeeCode: worker.employeeCode || "",
                     workerCardNumber: worker.cardNumber || "",
                     jobTitle: worker.jobTitle || "",
                   });
                 }}
                 placeholder="اختر من العمال المسكّنين..."
-                options={workers.map((worker) => ({ value: worker.id, label: `${worker.name}${worker.employeeCode ? ` — ${worker.employeeCode}` : ""}` }))}
+                options={workers.map((worker) => ({ value: worker.id, label: worker.name }))}
               />
             </Field>
           )}
           <Field label="اسم العامل" required>
             <TextInput value={draft.workerName} onChange={(event) => setDraft({ ...draft, workerName: event.target.value })} />
-          </Field>
-          <Field label="كود الموظف">
-            <TextInput value={draft.employeeCode} onChange={(event) => setDraft({ ...draft, employeeCode: event.target.value })} />
           </Field>
           <Field label="المسمى الوظيفي">
             <TextInput value={draft.jobTitle} onChange={(event) => setDraft({ ...draft, jobTitle: event.target.value })} />
@@ -382,10 +375,10 @@ export default function ContractorPortalPage() {
                 { label: "النوع", value: detail.typeLabel || (detail.requestType === "new_worker" ? "إضافة عامل" : "استبعاد عامل") },
                 { label: "المرحلة", value: <Badge tone={statusTone(detail.stage)}>{detail.stageLabel || stageLabel(detail.stage)}</Badge> },
                 { label: "رقم البطاقة", value: detail.workerCardNumber || "—" },
-                { label: "كود الموظف", value: detail.employeeCode || "—" },
+                { label: "كود الموظف", value: detail.employeeCode ? detail.employeeCode : "يُدخله مراقب الزوار عند الاعتماد" },
                 { label: "تاريخ الميلاد", value: detail.workerBirthDate ? formatDate(detail.workerBirthDate) : "—" },
                 { label: "مكان الميلاد", value: detail.workerBirthPlace || "—" },
-                { label: "السرير", value: detail.bedLabel || "—" },
+                { label: "السكن المحدد", value: detail.bedLabel ? `${detail.bedLabel}${detail.roomName ? ` · ${detail.roomName}` : ""}` : "يظهر بعد اكتمال الاعتمادات" },
                 { label: "تاريخ الإنشاء", value: formatDateTime(detail.createdAt) },
                 { label: "آخر مراجعة", value: detail.reviewedAt ? formatDateTime(detail.reviewedAt) : "—" },
               ]}
@@ -394,19 +387,23 @@ export default function ContractorPortalPage() {
             <div>
               <h3 className="sub-title">مسار الطلب</h3>
               <div className="stage-stepper">
-                {(detail.requestType === "new_worker" ? ["security", "visitor", "housing", "done"] : ["housing", "security", "visitor", "done"]).map((step) => {
-                  const order = detail.requestType === "new_worker" ? ["security", "visitor", "housing", "done"] : ["housing", "security", "visitor", "done"];
+                {(() => {
+                  const order = detail.requestType === "new_worker"
+                    ? ["department", "security", "visitor", "housing", "done"]
+                    : ["department", "security", "visitor", "done"];
                   const currentIndex = detail.stage === "rejected" ? -1 : order.indexOf(detail.stage);
-                  const stepIndex = order.indexOf(step);
-                  const active = detail.stage === step;
-                  const passed = detail.stage === "done" ? true : currentIndex > stepIndex;
-                  return (
-                    <div key={step} className={`stage-step ${active ? "active" : ""} ${passed ? "passed" : ""} ${detail.stage === "rejected" ? "rejected" : ""}`}>
-                      <span>{passed ? <CheckCircle2 size={15} /> : step === "housing" ? <Home size={15} /> : step === "security" ? <ShieldCheck size={15} /> : step === "done" ? <CheckCircle2 size={15} /> : <DoorOpen size={15} />}</span>
-                      <small>{stageLabel(step)}</small>
-                    </div>
-                  );
-                })}
+                  return order.map((step) => {
+                    const stepIndex = order.indexOf(step);
+                    const active = detail.stage === step;
+                    const passed = detail.stage === "done" ? true : currentIndex > stepIndex;
+                    return (
+                      <div key={step} className={`stage-step ${active ? "active" : ""} ${passed ? "passed" : ""} ${detail.stage === "rejected" ? "rejected" : ""}`}>
+                        <span>{passed ? <CheckCircle2 size={15} /> : step === "housing" ? <Home size={15} /> : step === "security" ? <ShieldCheck size={15} /> : step === "done" ? <CheckCircle2 size={15} /> : <DoorOpen size={15} />}</span>
+                        <small>{stageLabel(step)}</small>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </div>
             {detail.history?.length ? (

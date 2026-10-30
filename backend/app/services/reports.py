@@ -245,7 +245,7 @@ def requests_report(data: dict[str, Any]) -> dict[str, Any]:
     return {
         "contractorRequests": {
             "total": len(contractor_requests),
-            "pending": stages.get("security", 0) + stages.get("visitor", 0) + stages.get("housing", 0),
+            "pending": stages.get("department", 0) + stages.get("security", 0) + stages.get("visitor", 0) + stages.get("housing", 0),
             "done": stages.get("done", 0),
             "rejected": stages.get("rejected", 0),
             "stages": dict(stages),

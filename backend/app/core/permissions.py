@@ -17,6 +17,7 @@ PERMISSIONS: list[dict[str, str]] = [
     {"id": "requests.supervise", "label": "اعتماد طلبات المتعهدين (مراقب السكن)", "group": "الاعتماد"},
     {"id": "requests.security", "label": "الاعتماد الأمني (مشرف الأمن)", "group": "الاعتماد"},
     {"id": "requests.visitor", "label": "اعتماد مراقب الزوار (كود الموظف والعمر)", "group": "الاعتماد"},
+    {"id": "requests.department", "label": "ادارة المتعهد/المقاول (اعتماد مدير الإدارة قبل مشرف الأمن)", "group": "الاعتماد"},
     {"id": "contractor.portal", "label": "بوابة المتعهد/المقاول", "group": "خاص"},
     {"id": "admin.users", "label": "إدارة المستخدمين والأدوار", "group": "الإدارة"},
     # صلاحيات جديدة
@@ -49,6 +50,11 @@ ROLE_DEFAULT_PERMISSIONS: dict[str, list[str]] = {
     "r_visitor": ["operations.view", "requests.visitor"],
     "r_contractor": ["contractor.portal"],
     "r_admin": list(PERMISSION_IDS),
+    "r_dept_manager": [
+        "dashboard.view",
+        "operations.view",
+        "requests.department",
+    ],
 }
 
 SYSTEM_ROLES: list[dict[str, Any]] = [
@@ -87,6 +93,13 @@ SYSTEM_ROLES: list[dict[str, Any]] = [
         "isSystem": True,
         "permissionIds": ROLE_DEFAULT_PERMISSIONS["r_admin"],
     },
+    {
+        "id": "r_dept_manager",
+        "name": "مدير إدارة المتعهد/المقاول",
+        "description": "ادارة المتعهد/المقاول — اعتماد طلباته قبل مشرف الأمن",
+        "isSystem": True,
+        "permissionIds": ROLE_DEFAULT_PERMISSIONS["r_dept_manager"],
+    },
 ]
 
 ROLE_DEFAULT_BY_ROLE: dict[str, str] = {
@@ -95,6 +108,7 @@ ROLE_DEFAULT_BY_ROLE: dict[str, str] = {
     "securitySupervisor": "r_security",
     "visitorSupervisor": "r_visitor",
     "housingSupervisor": "r_housing",
+    "deptManager": "r_dept_manager",
 }
 
 ROLE_LABELS: dict[str, str] = {
@@ -103,6 +117,7 @@ ROLE_LABELS: dict[str, str] = {
     "securitySupervisor": "مشرف الأمن",
     "visitorSupervisor": "مراقب الزوار",
     "contractor": "متعهد/مقاول",
+    "deptManager": "مدير إدارة المتعهد/المقاول",
 }
 
 

@@ -12,6 +12,7 @@ from app.core.permissions import (
     public_user,
 )
 from app.core.security import hash_password
+from app.core.state import contractor_department_for_name
 from app.services.common import (
     ServiceError,
     add_audit,
@@ -254,6 +255,10 @@ def create_contractor(data: dict[str, Any], payload: dict[str, Any], actor: dict
         "id": new_id("ctr_"),
         "name": name,
         "contractorType": clean_str(payload.get("contractorType")) or "general",
+        "department": (
+            clean_str(payload.get("department"))
+            or contractor_department_for_name(name)
+        ),
         "contactPhone": clean_str(payload.get("contactPhone")),
         "contactEmail": clean_str(payload.get("contactEmail")),
         "status": clean_str(payload.get("status")) or "active",
@@ -291,6 +296,9 @@ def update_contractor(data: dict[str, Any], contractor: dict[str, Any], payload:
     for field, default in (("contractorType", "general"), ("contactPhone", ""), ("contactEmail", ""), ("status", "active"), ("notes", "")):
         if field in payload:
             contractor[field] = clean_str(payload.get(field)) or default
+    if "department" in payload:
+        department = clean_str(payload.get("department"))
+        contractor["department"] = department or contractor_department_for_name(str(contractor.get("name") or ""))
     if "bedQuota" in payload:
         contractor["bedQuota"] = max(0, int_value(payload.get("bedQuota")))
     contractor["updatedAt"] = now_iso()

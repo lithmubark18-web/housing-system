@@ -376,7 +376,7 @@ export default function SettingsPage() {
                   </label>
                   <small className="muted">
                     اتركه فارغاً لاستخدام أصل الصفحة. على أندرويد أدخل الرابط كاملاً مثل
-                    <code> http://192.168.1.10:8000</code>
+                    <code> http://192.168.1.10:8444</code>
                   </small>
                   <button type="button" className="secondary-btn" onClick={saveServerUrl}>
                     <Save size={16} /> حفظ رابط الخادم

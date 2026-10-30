@@ -26,24 +26,30 @@ from app.services.housing import (
 
 
 STAGE_LABELS = {
-    "housing": "مراقب السكن",
+    "department": "مدير الإدارة",
     "security": "مشرف الأمن",
     "visitor": "مراقب الزوار",
+    "housing": "مراقب السكن",
     "done": "مكتمل",
     "rejected": "مرفوض",
 }
 
 STAGE_PERMISSION = {
-    "housing": "requests.supervise",
+    "department": "requests.department",
     "security": "requests.security",
     "visitor": "requests.visitor",
+    "housing": "requests.supervise",
 }
 
 
 def request_payload(data: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
     item = dict(request)
     contractor = contractor_by_id(data, request.get("contractorId"))
-    item["contractor"] = {"id": (contractor or {}).get("id"), "name": (contractor or {}).get("name")}
+    item["contractor"] = {
+        "id": (contractor or {}).get("id"),
+        "name": (contractor or {}).get("name"),
+        "department": clean_str((contractor or {}).get("department")),
+    }
     item["stageLabel"] = STAGE_LABELS.get(str(request.get("stage")), str(request.get("stage")))
     item["isAdd"] = request.get("requestType") == "new_worker"
     item["isPending"] = request.get("stage") not in {"done", "rejected"}
@@ -153,7 +159,7 @@ def create_request(
                 raise ServiceError("يوجد طلب إضافة قيد الاعتماد لنفس رقم البطاقة مسبقاً", 409)
         if contractor_free(data, contractor_id) <= 0:
             raise ServiceError(f"لا يوجد سرير متاح لدى المتعهد ({contractor.get('name')})", 409)
-        stage = "security"
+        stage = "department"
     else:
         matched = _find_worker(data, {
             "contractorId": contractor_id,
@@ -175,7 +181,7 @@ def create_request(
                 )
             ):
                 raise ServiceError("يوجد طلب استبعاد قيد الاعتماد لهذا العامل مسبقاً", 409)
-        stage = "housing"
+        stage = "department"
 
     item = {
         "id": new_id("CR-"),
@@ -195,6 +201,7 @@ def create_request(
         "reason": reason,
         "stage": stage,
         "createdAt": now_iso(),
+        "departmentApprover": "",
         "housingApprover": "",
         "securityApprover": "",
         "visitorApprover": "",
@@ -230,7 +237,12 @@ def create_request(
     return item
 
 
-def _execute_add(data: dict[str, Any], request: dict[str, Any], actor: dict[str, Any] | None) -> None:
+def _execute_add(
+    data: dict[str, Any],
+    request: dict[str, Any],
+    actor: dict[str, Any] | None,
+    bed_id: str = "",
+) -> None:
     contractor = contractor_by_id(data, request.get("contractorId"))
     if not contractor:
         raise ServiceError("المتعهد/المقاول غير موجود", 404)
@@ -239,7 +251,13 @@ def _execute_add(data: dict[str, Any], request: dict[str, Any], actor: dict[str,
     free = free_beds_for_contractor(data, contractor.get("id"))
     if not free:
         raise ServiceError("لا يوجد سرير فعلي متاح في مباني المتعهد", 409)
-    bed = free[0]
+    if bed_id:
+        picked = [b for b in free if str(b.get("id")) == str(bed_id)]
+        if not picked:
+            raise ServiceError("السرير المحدد غير متاح لدى هذا المتعهد", 409)
+        bed = picked[0]
+    else:
+        bed = free[0]
     room = room_by_id(data, bed.get("roomId"))
     if not room:
         raise ServiceError("الغرفة المرتبطة بالسرير غير موجودة", 409)
@@ -382,6 +400,7 @@ def approve_request(
     *,
     employee_code: str = "",
     notes: str = "",
+    bed_id: str = "",
 ) -> dict[str, Any]:
     if stage not in STAGE_PERMISSION:
         raise ServiceError("مرحلة الاعتماد غير معروفة")
@@ -400,19 +419,26 @@ def approve_request(
         request["employeeCode"] = code
 
     if stage == "housing" and is_add:
-        _execute_add(data, request, actor)
+        # مشرف السكن يحدد الغرفة والسرير بنفسه من أسرّة المتعهد المتاحة.
+        bed_id_clean = clean_str(bed_id) or clean_str(request.get("bedId"))
+        if not bed_id_clean:
+            raise ServiceError("يرجى تحديد السرير المتاح قبل الاعتماد")
+        _execute_add(data, request, actor, bed_id=bed_id_clean)
     elif stage == "visitor" and not is_add:
         _execute_remove(data, request, actor)
 
-    if stage == "housing":
-        request["housingApprover"] = actor_name
-        request["stage"] = "done" if is_add else "security"
+    if stage == "department":
+        request["departmentApprover"] = actor_name
+        request["stage"] = "security"
     elif stage == "security":
         request["securityApprover"] = actor_name
         request["stage"] = "visitor"
-    else:
+    elif stage == "visitor":
         request["visitorApprover"] = actor_name
         request["stage"] = "housing" if is_add else "done"
+    else:
+        request["housingApprover"] = actor_name
+        request["stage"] = "done"
 
     request["reviewedAt"] = now_iso()
     request["reviewNotes"] = clean_str(notes)
@@ -454,9 +480,10 @@ def reject_request(
         raise ServiceError("الطلب مغلق مسبقاً", 409)
     stage = str(request.get("stage"))
     default_note = {
-        "housing": "مرفوض من مراقب السكن",
+        "department": "مرفوض من مدير الإدارة",
         "security": "مرفوض من مشرف الأمن",
         "visitor": "مرفوض من مراقب الزوار",
+        "housing": "مرفوض من مراقب السكن",
     }.get(stage, "مرفوض")
     request["stage"] = "rejected"
     request["reviewedAt"] = now_iso()
@@ -482,7 +509,7 @@ def reject_request(
 
 
 def pending_counts(data: dict[str, Any]) -> dict[str, int]:
-    counts = {"housing": 0, "security": 0, "visitor": 0, "done": 0, "rejected": 0, "total": 0}
+    counts = {"department": 0, "security": 0, "visitor": 0, "housing": 0, "done": 0, "rejected": 0, "total": 0}
     for request in data.get("contractorRequests", []):
         stage = str(request.get("stage"))
         if stage in counts:

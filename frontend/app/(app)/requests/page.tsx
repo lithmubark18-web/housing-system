@@ -23,6 +23,7 @@ import {
   createContractorRequest,
   createHousingRequest,
   deleteHousingRequest,
+  listContractorFreeBeds,
   listContractorRequests,
   listHousingRequests,
   rejectContractorRequest,
@@ -53,19 +54,21 @@ import {
 } from "@/components/ui";
 
 type TabId = "contractor" | "housing";
-type StageFilter = "" | "pending" | "housing" | "security" | "visitor" | "done" | "rejected";
+type StageFilter = "" | "pending" | "department" | "housing" | "security" | "visitor" | "done" | "rejected";
 
 const STAGE_TABS: Array<{ id: StageFilter; label: string }> = [
   { id: "pending", label: "المعلّقة" },
-  { id: "housing", label: "اعتماد السكن" },
+  { id: "department", label: "اعتماد الإدارة" },
   { id: "security", label: "الاعتماد الأمني" },
   { id: "visitor", label: "اعتماد الزوار" },
+  { id: "housing", label: "اعتماد السكن" },
   { id: "done", label: "مكتملة" },
   { id: "rejected", label: "مرفوضة" },
   { id: "", label: "الكل" },
 ];
 
 const STAGE_PERMISSION: Record<string, string> = {
+  department: "requests.department",
   housing: "requests.supervise",
   security: "requests.security",
   visitor: "requests.visitor",
@@ -119,6 +122,9 @@ export default function RequestsPage() {
   const [approveTarget, setApproveTarget] = useState<ContractorRequest | null>(null);
   const [rejectTarget, setRejectTarget] = useState<ContractorRequest | null>(null);
   const [employeeCode, setEmployeeCode] = useState("");
+  const [selectedBedId, setSelectedBedId] = useState("");
+  const [freeBeds, setFreeBeds] = useState<Array<{ id: string; label: string; roomName: string; buildingName: string }>>([]);
+  const [bedsLoading, setBedsLoading] = useState(false);
   const [reviewNotes, setReviewNotes] = useState("");
   const [actionError, setActionError] = useState("");
 
@@ -145,7 +151,7 @@ export default function RequestsPage() {
     const params = new URLSearchParams(window.location.search);
     if (params.get("tab") === "housing") setTab("housing");
     const requested = params.get("stage");
-    if (requested && ["pending", "housing", "security", "visitor", "done", "rejected"].includes(requested)) {
+    if (requested && ["pending", "department", "housing", "security", "visitor", "done", "rejected"].includes(requested)) {
       setStage(requested as StageFilter);
     }
     if (params.get("action") === "add" && canCreateContractor) setCreateOpen(true);
@@ -259,7 +265,7 @@ export default function RequestsPage() {
   }
 
   function canApprove(request: ContractorRequest): boolean {
-    if (!request.isPending && !["housing", "security", "visitor"].includes(request.stage)) return false;
+    if (!request.isPending && ![ "department", "housing", "security", "visitor" ].includes(request.stage)) return false;
     if (["done", "rejected"].includes(request.stage)) return false;
     const permission = STAGE_PERMISSION[request.stage];
     return !!permission && can(user, permission);
@@ -268,8 +274,20 @@ export default function RequestsPage() {
   function openApprove(request: ContractorRequest) {
     setApproveTarget(request);
     setEmployeeCode(request.employeeCode || "");
+    setSelectedBedId(request.bedId || "");
+    setFreeBeds([]);
     setReviewNotes("");
     setActionError("");
+    if (request.stage === "housing" && request.requestType === "new_worker" && request.contractorId) {
+      setBedsLoading(true);
+      listContractorFreeBeds(request.contractorId)
+        .then((result) => {
+          setFreeBeds(result.items || []);
+          if (result.items?.length && !request.bedId) setSelectedBedId("");
+        })
+        .catch((err) => setActionError(err instanceof Error ? err.message : "تعذر تحميل الأسرّة المتاحة"))
+        .finally(() => setBedsLoading(false));
+    }
   }
 
   async function confirmApprove() {
@@ -279,12 +297,17 @@ export default function RequestsPage() {
       setActionError("كود الموظف مطلوب في مرحلة اعتماد الزوار");
       return;
     }
+    if (target.stage === "housing" && target.requestType === "new_worker" && !selectedBedId) {
+      setActionError("يرجى تحديد الغرفة ورقم السرير قبل الاعتماد");
+      return;
+    }
     setBusy(true);
     setActionError("");
     try {
       await approveContractorRequest(target.id, target.stage, {
         employeeCode: employeeCode.trim() || undefined,
         notes: reviewNotes.trim(),
+        bedId: target.stage === "housing" ? selectedBedId : undefined,
       });
       setApproveTarget(null);
       setDetail(null);
@@ -452,7 +475,7 @@ export default function RequestsPage() {
 
       <div className="stats-grid stats-grid-4">
         <StatCard icon={Clock3} label="معلّقة" value={formatNumber(pendingTotal)} hint="بانتظار اعتماد" tone="warn" />
-        <StatCard icon={Home} label="اعتماد السكن" value={formatNumber(counts.housing || 0)} tone="info" />
+        <StatCard icon={UserRoundPlus} label="اعتماد الإدارة" value={formatNumber(counts.department || 0)} tone="warn" />
         <StatCard icon={ShieldCheck} label="الاعتماد الأمني" value={formatNumber(counts.security || 0)} tone="primary" />
         <StatCard icon={CheckCircle2} label="مكتملة" value={formatNumber(counts.done || 0)} hint={`${formatNumber(counts.rejected || 0)} مرفوضة`} tone="success" />
       </div>
@@ -665,6 +688,7 @@ export default function RequestsPage() {
                 { label: "رقم الطلب", value: detail.id },
                 { label: "نوع الطلب", value: detail.typeLabel || requestTypeLabel(detail.requestType) },
                 { label: "المرحلة", value: <Badge tone={statusTone(detail.stage)}>{detail.stageLabel || stageLabel(detail.stage)}</Badge> },
+                { label: "إدارة المتعهد", value: detail.contractor?.department || "—" },
                 { label: "رقم البطاقة", value: detail.workerCardNumber || "—" },
                 { label: "كود الموظف", value: detail.employeeCode || "—" },
                 { label: "المسمى", value: detail.jobTitle || "—" },
@@ -682,19 +706,23 @@ export default function RequestsPage() {
             <div>
               <h3 className="sub-title">مسار الاعتماد</h3>
               <div className="stage-stepper">
-                {(detail.requestType === "new_worker" ? ["security", "visitor", "housing", "done"] : ["housing", "security", "visitor", "done"]).map((step) => {
-                  const order = detail.requestType === "new_worker" ? ["security", "visitor", "housing", "done"] : ["housing", "security", "visitor", "done"];
+                {(() => {
+                  const order = detail.requestType === "new_worker"
+                    ? ["department", "security", "visitor", "housing", "done"]
+                    : ["department", "security", "visitor", "done"];
                   const currentIndex = detail.stage === "rejected" ? -1 : order.indexOf(detail.stage);
-                  const stepIndex = order.indexOf(step);
-                  const active = detail.stage === step;
-                  const passed = detail.stage === "done" ? true : currentIndex > stepIndex;
-                  return (
-                    <div key={step} className={`stage-step ${active ? "active" : ""} ${passed ? "passed" : ""} ${detail.stage === "rejected" ? "rejected" : ""}`}>
-                      <span>{passed ? <CheckCircle2 size={15} /> : step === "done" ? <CheckCircle2 size={15} /> : step === "housing" ? <Home size={15} /> : step === "security" ? <ShieldCheck size={15} /> : <DoorOpen size={15} />}</span>
-                      <small>{stageLabel(step)}</small>
-                    </div>
-                  );
-                })}
+                  return order.map((step) => {
+                    const stepIndex = order.indexOf(step);
+                    const active = detail.stage === step;
+                    const passed = detail.stage === "done" ? true : currentIndex > stepIndex;
+                    return (
+                      <div key={step} className={`stage-step ${active ? "active" : ""} ${passed ? "passed" : ""} ${detail.stage === "rejected" ? "rejected" : ""}`}>
+                        <span>{passed ? <CheckCircle2 size={15} /> : step === "done" ? <CheckCircle2 size={15} /> : step === "housing" ? <Home size={15} /> : step === "security" ? <ShieldCheck size={15} /> : <DoorOpen size={15} />}</span>
+                        <small>{stageLabel(step)}</small>
+                      </div>
+                    );
+                  });
+                })()}
               </div>
               {detail.stage === "rejected" && <Alert tone="danger">تم رفض الطلب — راجع ملاحظات المراجعة أعلاه.</Alert>}
             </div>
@@ -760,16 +788,36 @@ export default function RequestsPage() {
               ]}
             />
             {approveTarget.stage === "housing" && approveTarget.requestType === "new_worker" && (
-              <Alert tone="info">سيتم إسكان العامل تلقائياً في أول سرير شاغر داخل مباني المتعهد.</Alert>
+              <Field
+                label="تحديد السكن — الغرفة والسرير"
+                required
+                hint="اختر سريراً من الأسرّة المتاحة للمتعهد — تظهر البيانات لدى المتعهد بعد الاعتماد"
+              >
+                {bedsLoading ? (
+                  <p className="muted">جارٍ تحميل الأسرّة المتاحة...</p>
+                ) : freeBeds.length ? (
+                  <Select
+                    value={selectedBedId}
+                    onChange={(event) => setSelectedBedId(event.target.value)}
+                    placeholder="اختر الغرفة ورقم السرير..."
+                    options={freeBeds.map((bed) => ({
+                      value: bed.id,
+                      label: `${bed.buildingName ? `${bed.buildingName} · ` : ""}${bed.roomName || "غرفة"} — سرير ${bed.label}`.trim(),
+                    }))}
+                  />
+                ) : (
+                  <Alert tone="warning">لا توجد أسرّة متاحة حالياً لدى هذا المتعهد.</Alert>
+                )}
+              </Field>
             )}
             {approveTarget.stage === "visitor" && approveTarget.requestType === "remove_worker" && (
               <Alert tone="warning">سيتم استبعاد العامل وإخلاء سريره عند اعتماد هذه المرحلة.</Alert>
             )}
-            {(approveTarget.stage === "visitor" || approveTarget.requestType === "new_worker") && (
+            {approveTarget.stage === "visitor" && approveTarget.requestType === "new_worker" && (
               <Field
                 label="كود الموظف"
-                required={approveTarget.stage === "visitor" && approveTarget.requestType === "new_worker"}
-                hint="مطلوب قبل الاعتماد النهائي لإضافة العامل"
+                required
+                hint="مطلوب عند مراقب الزوار قبل تمرير الطلب لمشرف السكن"
               >
                 <TextInput value={employeeCode} onChange={(event) => setEmployeeCode(event.target.value)} placeholder="مثال: EMP-1024" />
               </Field>
