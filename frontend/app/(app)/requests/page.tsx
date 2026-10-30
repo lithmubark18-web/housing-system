@@ -63,7 +63,7 @@ const STAGE_TABS: Array<{ id: StageFilter; label: string }> = [
   { id: "visitor", label: "اعتماد الزوار" },
   { id: "housing", label: "اعتماد السكن" },
   { id: "done", label: "مكتملة" },
-  { id: "rejected", label: "مرفوضة" },
+  { id: "rejected", label: "المستبعدون/المرفوضة" },
   { id: "", label: "الكل" },
 ];
 
@@ -547,6 +547,7 @@ export default function RequestsPage() {
                           <div className="stack-cell">
                             <strong>{request.workerName}</strong>
                             <small>{request.workerCardNumber || request.employeeCode || request.jobTitle || "—"}</small>
+                            {stage === "rejected" && request.reviewNotes && <small className="block-note">السبب: {request.reviewNotes}</small>}
                           </div>
                         </td>
                         <td>{request.contractorName}</td>

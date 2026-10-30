@@ -38,7 +38,7 @@ import {
   occupancyTone,
 } from "@/components/ui";
 
-type TabId = "workers" | "registered" | "requests";
+type TabId = "workers" | "registered" | "requests" | "done" | "rejected";
 
 const EMPTY_REQUEST = {
   requestType: "new_worker",
@@ -101,6 +101,8 @@ export default function ContractorPortalPage() {
   );
 
   const pending = requests.filter((request) => request.stage !== "done" && request.stage !== "rejected");
+  const doneRequests = requests.filter((request) => request.stage === "done");
+  const rejectedRequests = requests.filter((request) => request.stage === "rejected");
 
   function notify(message: string) {
     setNotice(message);
@@ -182,7 +184,7 @@ export default function ContractorPortalPage() {
         <StatCard icon={UsersRound} label="عمال المتعهد" value={formatNumber(stats?.workerCount || workers.length)} hint={`${formatNumber(portal.contractor.bedQuota || 0)} سعة`} />
         <StatCard icon={BedDouble} label="الشاغر التعاقدي" value={formatNumber(stats?.freeQuota || 0)} tone={(stats?.freeQuota || 0) > 0 ? "success" : "danger"} />
         <StatCard icon={Building2} label="الإشغال" value={formatPercent(stats?.occupancyPercent || 0)} hint={`${formatNumber(stats?.freePhysicalBeds || 0)} سرير شاغر فعلي`} tone={occupancyTone(stats?.occupancyPercent || 0)} />
-        <StatCard icon={ClipboardList} label="طلبات معلّقة" value={formatNumber(pending.length)} hint={`${formatNumber(requests.length)} إجمالي الطلبات`} tone="warn" />
+        <StatCard icon={ClipboardList} label="طلبات معلّقة" value={formatNumber(pending.length)} hint={`${formatNumber(doneRequests.length)} مكتمل · ${formatNumber(rejectedRequests.length)} مستبعد`} tone="warn" />
       </div>
 
       <section className="form-panel quota-panel">
@@ -198,7 +200,9 @@ export default function ContractorPortalPage() {
         tabs={[
           { id: "workers", label: "العمال المسكّنون", count: workers.length },
           { id: "registered", label: "سجل العمال", count: registered.length },
-          { id: "requests", label: "الطلبات", count: requests.length },
+          { id: "requests", label: "الطلبات الجارية", count: pending.length },
+          { id: "done", label: "المكتملة", count: doneRequests.length },
+          { id: "rejected", label: "المستبعدون/المرفوضون", count: rejectedRequests.length },
         ]}
         active={tab}
         onChange={(id) => setTab(id)}
@@ -262,18 +266,22 @@ export default function ContractorPortalPage() {
         </section>
       )}
 
-      {tab === "requests" && (
+      {(tab === "requests" || tab === "done" || tab === "rejected") && (
         <section className="table-card">
-          {requests.length ? (
+          {(tab === "requests" ? pending : tab === "done" ? doneRequests : rejectedRequests).length ? (
             <div className="table-scroll">
               <table className="residents-table">
                 <thead>
                   <tr><th>العامل</th><th>النوع</th><th>المرحلة</th><th>السرير</th><th>أنشئ</th><th>إجراءات</th></tr>
                 </thead>
                 <tbody>
-                  {requests.map((request) => (
+                  {(tab === "requests" ? pending : tab === "done" ? doneRequests : rejectedRequests).map((request) => (
                     <tr key={request.id}>
-                      <td><strong>{request.workerName}</strong><small className="block-note">{request.workerCardNumber || request.jobTitle || "—"}</small></td>
+                      <td>
+                        <strong>{request.workerName}</strong>
+                        <small className="block-note">{request.workerCardNumber || request.jobTitle || "—"}</small>
+                        {tab === "rejected" && request.reviewNotes && <small className="block-note">سبب الرفض: {request.reviewNotes}</small>}
+                      </td>
                       <td><Badge tone={request.requestType === "new_worker" ? "info" : "warn"}>{request.typeLabel || (request.requestType === "new_worker" ? "إضافة عامل" : "استبعاد عامل")}</Badge></td>
                       <td><Badge tone={statusTone(request.stage)} dot>{request.stageLabel || stageLabel(request.stage)}</Badge></td>
                       <td>{request.bedLabel ? `${request.bedLabel}${request.roomName ? ` · ${request.roomName}` : ""}` : "—"}</td>
@@ -286,9 +294,9 @@ export default function ContractorPortalPage() {
             </div>
           ) : (
             <EmptyState
-              title="لا توجد طلبات"
-              hint={canRequest ? "قدّم طلب إضافة أو استبعاد عامل" : undefined}
-              action={canRequest && !offline ? <button type="button" className="primary-btn" onClick={() => setRequestOpen(true)}><FilePlus2 size={16} /> طلب جديد</button> : undefined}
+              title={tab === "requests" ? "لا توجد طلبات جارية" : tab === "done" ? "لا توجد طلبات مكتملة" : "لا يوجد مستبعدون/مرفوضون"}
+              hint={tab === "requests" && canRequest ? "قدّم طلب إضافة أو استبعاد عامل" : undefined}
+              action={tab === "requests" && canRequest && !offline ? <button type="button" className="primary-btn" onClick={() => setRequestOpen(true)}><FilePlus2 size={16} /> طلب جديد</button> : undefined}
             />
           )}
         </section>
