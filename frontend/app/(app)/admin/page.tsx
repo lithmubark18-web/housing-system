@@ -103,9 +103,18 @@ const EMPTY_USER = {
   roleId: "r_housing",
   phone: "",
   contractorId: "",
+  department: "",
   isActive: true,
   mustChangePassword: false,
 };
+
+/* إدارات المتعهدين — مطابقة لـ CONTRACTOR_DEPARTMENTS في الخادم */
+const DEPARTMENT_OPTIONS = [
+  { value: "إدارة الشؤون", label: "إدارة الشؤون" },
+  { value: "إدارة التخطيط", label: "إدارة التخطيط" },
+  { value: "إدارة التعبئة", label: "إدارة التعبئة" },
+  { value: "إدارة الصيانة", label: "إدارة الصيانة" },
+];
 
 export default function AdminPage() {
   const { data, user, offline, online, reload } = useApp();
@@ -289,6 +298,7 @@ export default function AdminPage() {
       roleId: account.roleId || roleOptions[0]?.value || "r_housing",
       phone: account.phone || "",
       contractorId: account.contractorId || "",
+      department: account.department || "",
       isActive: account.isActive !== false,
       mustChangePassword: !!account.mustChangePassword,
     });
@@ -302,6 +312,7 @@ export default function AdminPage() {
     if (!editingUser && userDraft.password.length < 6) return setUserFormError("كلمة المرور 6 أحرف على الأقل");
     if (editingUser && userDraft.password && userDraft.password.length < 6) return setUserFormError("كلمة المرور 6 أحرف على الأقل");
     if (userDraft.roleId === "r_contractor" && !userDraft.contractorId) return setUserFormError("اربط حساب المتعهد بمتعهد");
+    if (userDraft.roleId === "r_dept_manager" && !userDraft.department) return setUserFormError("اختر إدارة مدير الإدارة");
     setBusy(true);
     setUserFormError("");
     try {
@@ -313,6 +324,7 @@ export default function AdminPage() {
         isActive: userDraft.isActive,
         mustChangePassword: userDraft.mustChangePassword,
         contractorId: userDraft.roleId === "r_contractor" ? userDraft.contractorId : null,
+        department: userDraft.roleId === "r_dept_manager" ? userDraft.department : "",
       };
       if (userDraft.password) payload.password = userDraft.password;
       if (editingUser) await updateUser(editingUser.id, payload);
@@ -583,7 +595,7 @@ export default function AdminPage() {
               <div className="table-scroll">
                 <table className="residents-table">
                   <thead>
-                    <tr><th>المستخدم</th><th>اسم الدخول</th><th>الدور</th><th>الجوال</th><th>المتعهد</th><th>آخر دخول</th><th>الحالة</th><th>إجراءات</th></tr>
+                    <tr><th>المستخدم</th><th>اسم الدخول</th><th>الدور</th><th>الإدارة</th><th>الجوال</th><th>المتعهد</th><th>آخر دخول</th><th>الحالة</th><th>إجراءات</th></tr>
                   </thead>
                   <tbody>
                     {filteredUsers.map((account) => (
@@ -591,6 +603,7 @@ export default function AdminPage() {
                         <td><strong>{account.name}</strong>{account.mustChangePassword && <small className="block-note warn-note">يجب تغيير كلمة المرور</small>}</td>
                         <td><code className="code-chip">{account.username}</code></td>
                         <td><Badge tone={account.roleId === "r_admin" ? "warn" : "info"}>{account.roleName || roleLabel(account.roleId, account.role)}</Badge></td>
+                        <td>{account.roleId === "r_dept_manager" ? (account.department || "—") : "—"}</td>
                         <td>{account.phone || "—"}</td>
                         <td>{account.contractorName || "—"}</td>
                         <td>{account.lastLoginAt ? timeAgo(account.lastLoginAt) : "لم يدخل"}</td>
@@ -898,6 +911,11 @@ export default function AdminPage() {
           {userDraft.roleId === "r_contractor" && (
             <Field label="المتعهد المرتبط" required>
               <Select value={userDraft.contractorId} onChange={(event) => setUserDraft({ ...userDraft, contractorId: event.target.value })} options={contractorOptions} placeholder="اختر المتعهد..." />
+            </Field>
+          )}
+          {userDraft.roleId === "r_dept_manager" && (
+            <Field label="الإدارة" required hint="يرى مدير الإدارة طلبات متعهدي إدارته فقط">
+              <Select value={userDraft.department} onChange={(event) => setUserDraft({ ...userDraft, department: event.target.value })} options={DEPARTMENT_OPTIONS} placeholder="اختر الإدارة..." />
             </Field>
           )}
           <label className="check-item check-row full">

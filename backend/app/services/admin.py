@@ -87,6 +87,7 @@ def create_user(data: dict[str, Any], payload: dict[str, Any], actor: dict[str, 
         "contractorId": contractor.get("id") if contractor else None,
         "contractorName": clean_str((contractor or {}).get("name")),
         "companyName": clean_str(payload.get("companyName")),
+        "department": clean_str(payload.get("department")),
         "permissionIds": [],
         "isActive": payload.get("isActive", True) is not False,
         "mustChangePassword": bool(payload.get("mustChangePassword")),
@@ -127,6 +128,8 @@ def update_user(data: dict[str, Any], user: dict[str, Any], payload: dict[str, A
         user["phone"] = clean_str(payload.get("phone"))
     if "companyName" in payload:
         user["companyName"] = clean_str(payload.get("companyName"))
+    if "department" in payload:
+        user["department"] = clean_str(payload.get("department"))
     if "isActive" in payload:
         active = payload.get("isActive") is not False
         if str(user.get("id")) == actor_id and not active:

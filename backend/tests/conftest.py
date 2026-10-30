@@ -17,7 +17,14 @@ os.environ["FORCE_PASSWORD_CHANGE"] = "false"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
+from app.core.config import settings  # noqa: E402
 from app.main import app  # noqa: E402
+
+# حماية: الاختبارات تعمل على ملف محلي فقط، ولا تلمس قاعدة الإنتاج أبداً.
+if settings.database_url.strip():  # pragma: no cover - guard
+    raise RuntimeError(
+        "الاختبارات مضبوطة على قاعدة بيانات حقيقية — أوقفها فوراً وأزل DATABASE_URL."
+    )
 
 
 @pytest.fixture(scope="session")

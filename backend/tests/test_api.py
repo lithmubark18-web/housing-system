@@ -163,7 +163,15 @@ def test_contractor_request_workflow(client: TestClient, admin_headers: dict[str
     created = client.post("/api/contractor-requests", json=payload, headers=admin_headers)
     assert created.status_code == 201, created.text
     request_id = created.json()["id"]
-    assert created.json()["stage"] == "security"
+    assert created.json()["stage"] == "department"
+
+    approved = client.post(
+        f"/api/contractor-requests/{request_id}/approve-department",
+        json={"notes": "ok"},
+        headers=admin_headers,
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["stage"] == "security"
 
     approved = client.post(
         f"/api/contractor-requests/{request_id}/approve-security",
@@ -182,15 +190,19 @@ def test_contractor_request_workflow(client: TestClient, admin_headers: dict[str
     assert approved.status_code == 200, approved.text
     assert approved.json()["stage"] == "housing"
 
+    beds = client.get(
+        f"/api/contractors/{contractor['id']}/free-beds", headers=admin_headers
+    ).json()["items"]
+    assert beds, "لا توجد أسرّة متاحة للمتعهد"
     approved = client.post(
         f"/api/contractor-requests/{request_id}/approve-housing",
-        json={"notes": "done"},
+        json={"notes": "done", "bedId": beds[0]["id"]},
         headers=admin_headers,
     )
     assert approved.status_code == 200, approved.text
     body = approved.json()
     assert body["stage"] == "done"
-    assert body["bedId"]
+    assert body["bedId"] == beds[0]["id"]
 
     found = client.get(
         "/api/residents",
@@ -295,8 +307,14 @@ def _submit_new_worker(
     )
     assert created.status_code == 201, created.text
     request_id = created.json()["id"]
-    for stage in ("security", "visitor", "housing"):
-        payload = {"employeeCode": code, "notes": "ok"} if stage != "security" else {"notes": "ok"}
+    beds = client.get(f"/api/contractors/{contractor_id}/free-beds", headers=headers).json()["items"]
+    assert beds, "لا توجد أسرّة متاحة للمتعهد"
+    for stage in ("department", "security", "visitor", "housing"):
+        payload: dict = {"notes": "ok"}
+        if stage == "visitor":
+            payload["employeeCode"] = code
+        if stage == "housing":
+            payload["bedId"] = beds[0]["id"]
         approved = client.post(
             f"/api/contractor-requests/{request_id}/approve-{stage}",
             json=payload,
@@ -345,7 +363,7 @@ def test_remove_worker_deletes_only_targeted_resident(client: TestClient, admin_
     )
     assert remove.status_code == 201, remove.text
     remove_body = remove.json()
-    assert remove_body["stage"] == "housing"
+    assert remove_body["stage"] == "department"
     assert remove_body["targetResidentId"] == original_id
 
     # عامل جديد بنفس كود الموظف يُضاف بعد إنشاء طلب الاستبعاد وقبل تنفيذه.
@@ -355,7 +373,7 @@ def test_remove_worker_deletes_only_targeted_resident(client: TestClient, admin_
     )
     assert len(_residents_by_code(client, admin_headers, code)) == 2
 
-    for stage in ("housing", "security", "visitor"):
+    for stage in ("department", "security", "visitor"):
         approved = client.post(
             f"/api/contractor-requests/{remove_body['id']}/approve-{stage}",
             json={"notes": "ok"},

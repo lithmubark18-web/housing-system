@@ -19,6 +19,7 @@ export type User = {
   contractorId?: string | null;
   contractorName?: string;
   companyName?: string;
+  department?: string;
   isActive?: boolean;
   mustChangePassword?: boolean;
   permissions?: string[];
