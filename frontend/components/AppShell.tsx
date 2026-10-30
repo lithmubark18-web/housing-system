@@ -63,7 +63,7 @@ const GROUP_LABELS: Record<string, string> = {
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { user, data, notifications, unread, offline, online, refresh, reload, logout, readAll, markRead } = useApp();
+  const { user, data, notifications, unread, offline, serverReachable, online, refresh, reload, logout, readAll, markRead } = useApp();
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -178,7 +178,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           <div className={`mode-chip ${offline ? "offline" : ""}`}>
             <span className="live-dot" />
-            {offline ? "وضع دون إنترنت" : `متصل · ${data?.meta?.mode === "postgres" ? "PostgreSQL" : "محلي"}`}
+            {offline
+              ? serverReachable
+                ? "الخادم متاح · أعد الدخول للمزامنة"
+                : "وضع دون إنترنت"
+              : `متصل · ${data?.meta?.mode === "postgres" ? "PostgreSQL" : "محلي"}`}
           </div>
           <button type="button" className="logout-link" onClick={logout}>
             <LogOut size={18} /> خروج
@@ -286,9 +290,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <WifiOff size={16} />
             <span>
               {offline
-                ? "تعذر الاتصال بالخادم — أنت تستعرض نسخة محفوظة للقراءة فقط. عدّل البيانات عبر الشبكة."
+                ? serverReachable
+                  ? "الخادم متاح الآن — الجلسة الحالية محلية (دخول عبر PIN) بلا توكن. أعد تسجيل الدخول لبيانات حية ومزامنة، أو تابع بوضع القراءة فقط."
+                  : "تعذر الاتصال بالخادم — أنت تستعرض نسخة محفوظة للقراءة فقط. عدّل البيانات عبر الشبكة."
                 : "لا يوجد اتصال بالإنترنت — ستُعرض البيانات المحفوظة عند التحديث."}
             </span>
+            {offline && serverReachable && (
+              <button type="button" className="link-btn" onClick={() => logout()}>
+                إعادة تسجيل الدخول
+              </button>
+            )}
             <button type="button" className="link-btn" onClick={() => reload()}>
               إعادة المحاولة
             </button>

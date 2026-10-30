@@ -7,6 +7,7 @@ import {
   clearSession,
   getBootstrap,
   getStoredUser,
+  healthProbe,
   logoutLocal,
   readAllNotifications,
   readNotification,
@@ -27,11 +28,12 @@ import type { Bootstrap, Notification, User } from "./types";
 
 type AppContextValue = {
   user: User | null;
-  data: Bootstrap | null;
-  notifications: Notification[];
+  data: Bootstrap | null;  notifications: Notification[];
   unread: number;
   loading: boolean;
   offline: boolean;
+  /** الخادم متاح لكن الجلسة المحلية بلا توكن (دخول عبر PIN) — يلزم إعادة الدخول للمزامنة */
+  serverReachable: boolean;
   error: string;
   online: boolean;
   /** آخر وقت تحديث للبيانات */
@@ -59,6 +61,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<Bootstrap | null>(null);
   const [loading, setLoading] = useState(true);
   const [offline, setOffline] = useState(false);
+  const [serverReachable, setServerReachable] = useState(false);
   const [error, setError] = useState("");
   const [syncedAt, setSyncedAt] = useState<string | null>(null);
   const [online, setOnline] = useState(true);
@@ -96,6 +99,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const session = loadLocalSession();
         if (cached?.bootstrap && session) {
           applyBootstrap(cached.bootstrap, true);
+          // لا نحفظ كلمات المرور أمنياً، لذا لا يمكن إعادة الدخول الصامت.
+          // نُجسّر الخادم إن رجع لنطلب إعادة الدخول للمزامنة بدل "دون إنترنت" المضلِّلة.
+          healthProbe().then((ok) => {
+            if (ok && mounted.current) setServerReachable(true);
+          }).catch(() => {});
           setLoading(false);
           return true;
         }
@@ -109,6 +117,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const payload = await getBootstrap();
         if (!mounted.current) return false;
         applyBootstrap(payload, false);
+        setServerReachable(false);
         saveCachedSnapshot(payload, payload.meta?.counts);
         setError("");
         return true;
@@ -166,6 +175,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const result = await apiLogin(username, password);
       const bootstrap = await getBootstrap();
       applyBootstrap(bootstrap, false);
+      setServerReachable(false);
       saveCachedSnapshot(bootstrap, bootstrap.meta?.counts);
       return result.user;
     } finally {
@@ -176,6 +186,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     logoutLocal();
     clearLocalSession();
+    setServerReachable(false);
     // نُبقي النسخة المحلية إن كان للمستخدم رمز PIN — حتى يعمل الدخول دون
     // إنترنت عبر شاشة الدخول بعد الخروج (البيانات محميّة برمز PIN).
     const keepOfflineSnapshot = typeof window !== "undefined" && user ? hasLocalPin(user.username) : false;
@@ -217,6 +228,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       unread,
       loading,
       offline,
+      serverReachable,
       error,
       online,
       syncedAt,
@@ -228,7 +240,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       markRead,
       setUser,
     }),
-    [user, data, notifications, unread, loading, offline, error, online, syncedAt, refresh, reload, login, logout, readAll, markRead, setUser],
+    [user, data, notifications, unread, loading, offline, serverReachable, error, online, syncedAt, refresh, reload, login, logout, readAll, markRead, setUser],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

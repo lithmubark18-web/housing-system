@@ -167,6 +167,19 @@ function query(params: Record<string, string | number | boolean | null | undefin
 
 /* ----------------------------------- Auth ---------------------------------- */
 
+export async function healthProbe(timeoutMs = 4000): Promise<boolean> {
+  if (typeof fetch === "undefined") return false;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const response = await fetch(`${baseUrl()}/health`, { signal: controller.signal });
+    clearTimeout(timer);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function apiLogin(username: string, password: string) {
   const res = await request<{
     access_token: string;
