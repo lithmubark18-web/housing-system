@@ -12,6 +12,9 @@ const KEY_SNAPSHOT = "hs_snapshot";
 const KEY_CONFIG = "hs_config";
 const KEY_PENDING = "hs_pending_queue";
 
+/** الخادم الافتراضي للإنتاج — يُستخدم داخل APK المحمّل إن لم تُقدَّم قيمة في البناء. */
+export const DEFAULT_SERVER_URL = "https://housing-system-api.onrender.com";
+
 export type OfflineUser = {
   id: string;
   name: string;
@@ -136,6 +139,8 @@ export function backendBaseUrl(): string {
     }
     return normalizeBaseUrl(configured);
   }
+  // داخل APK يجب ألا يكون الخادم «الجهاز نفسه» — اسقط إلى الخادم الافتراضي.
+  if (isNativePlatform()) return DEFAULT_SERVER_URL;
   return window.location.origin;
 }
 
