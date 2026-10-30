@@ -254,6 +254,13 @@ def assign_resident_bed(
         if not resident:
             raise HTTPException(status_code=404, detail="الساكن غير موجود")
         assign_bed(data, resident, payload.bedId)
+        # تسكين مباشر: إغلاق آلي لطلب إضافة عامل معلّق مطابق لهذا الساكن
+        from app.services.contractor_requests import sync_direct_assignment
+
+        try:
+            sync_direct_assignment(data, resident, user)
+        except Exception:  # noqa: BLE001 — لا نعطل التسكين إن فشل الإغلاق الآلي
+            pass
         from app.services.common import add_audit
 
         add_audit(data, user, "bed_assigned", "resident", resident.get("id"), {"bedId": payload.bedId})
@@ -321,6 +328,13 @@ def bulk_assign(
             if resident.get("bedId"):
                 unassign_bed(data, resident)
             assign_bed(data, resident, bed.get("id"))
+            # تسكين مباشر: إغلاق آلي لطلب إضافة عامل معلّق مطابق لهذا الساكن
+            from app.services.contractor_requests import sync_direct_assignment
+
+            try:
+                sync_direct_assignment(data, resident, user)
+            except Exception:  # noqa: BLE001
+                pass
             assigned.append({"residentId": resident.get("id"), "name": resident.get("name"), "bedId": bed.get("id"), "bedLabel": bed.get("label")})
         from app.services.common import add_audit
 

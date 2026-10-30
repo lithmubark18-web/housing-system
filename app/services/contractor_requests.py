@@ -517,3 +517,85 @@ def pending_counts(data: dict[str, Any]) -> dict[str, int]:
         if stage not in {"done", "rejected"}:
             counts["total"] += 1
     return counts
+
+
+def close_request_completed(
+    data: dict[str, Any],
+    request: dict[str, Any],
+    actor: dict[str, Any] | None,
+    *,
+    reason: str = "",
+    resident: dict[str, Any] | None = None,
+) -> None:
+    """إغلاق طلب إضافة عامل كـ«مكتمل» خارج مسار الاعتماد (تسكين مباشر من إدارة السكن)."""
+    contractor = contractor_by_id(data, request.get("contractorId"))
+    actor_name = clean_str((actor or {}).get("name")) or "إدارة السكن"
+    if resident is not None:
+        request["bedId"] = resident.get("bedId")
+        request["buildingId"] = resident.get("buildingId")
+        # ربط المقيم بالمتعهد إذا كان السجل بلا منسوب
+        if not resident.get("contractorId"):
+            resident["contractorId"] = request.get("contractorId")
+        if not clean_str(resident.get("company")):
+            resident["company"] = clean_str(contractor.get("name")) if contractor else ""
+        resident["updatedAt"] = now_iso()
+        _upsert_registered_worker(
+            data,
+            request,
+            status="assigned",
+            building_id=resident.get("buildingId"),
+            room_id=resident.get("roomId"),
+            bed_id=resident.get("bedId"),
+        )
+    request["stage"] = "done"
+    request["housingApprover"] = actor_name
+    request["reviewedAt"] = now_iso()
+    request["reviewNotes"] = clean_str(reason) or "اكتمل سكن العامل من إدارة السكن"
+    request.setdefault("history", []).append({
+        "at": now_iso(),
+        "action": "completed_directly",
+        "stage": "housing",
+        "by": actor_name,
+        "notes": request["reviewNotes"],
+    })
+    add_audit(
+        data, actor, "contractor_request_completed_directly",
+        "contractor_request", request.get("id"),
+        {"worker": request.get("workerName"), "reason": request["reviewNotes"]},
+    )
+    _notify_contractor_users(
+        data, request.get("contractorId"), "اكتمل سكن العامل",
+        f"{request.get('workerName')} — تم استكمال الطلب وتحديد السكن",
+        actor,
+    )
+
+
+def sync_direct_assignment(data: dict[str, Any], resident: dict[str, Any], actor: dict[str, Any] | None) -> int:
+    """عند تسكين ساكن مباشرة من صفحة السكان: إغلاق آلي لطلبات الإضافة المعلقة المطابقة.
+
+    تُقبل المطابقة الحاسمة فقط:
+    - بطاقة/رقم هوية متطابق، أو
+    - الاسم متطابق حرفياً + السجل منسوب لنفس المتعهد.
+    """
+    card = normalize_card(resident.get("cardNumber"))
+    name = clean_str(resident.get("name"))
+    if not card and not name:
+        return 0
+    closed = 0
+    for request in data.get("contractorRequests", []):
+        if request.get("stage") in {"done", "rejected"} or request.get("requestType") != "new_worker":
+            continue
+        request_card = normalize_card(request.get("workerCardNumber"))
+        request_name = clean_str(request.get("workerName"))
+        card_match = bool(card) and bool(request_card) and card == request_card
+        name_match = bool(name) and bool(request_name) and name == request_name
+        contractor_match = str(resident.get("contractorId") or "") == str(request.get("contractorId") or "")
+        if not (card_match or (name_match and contractor_match)):
+            continue
+        close_request_completed(
+            data, request, actor,
+            reason="اكتمل سكن العامل مباشرة من إدارة السكن دون انتظار اعتماد المراحل",
+            resident=resident,
+        )
+        closed += 1
+    return closed
