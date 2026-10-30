@@ -4,7 +4,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from app.api.deps import require_any_permission, require_permission
+from app.api.deps import get_current_user, require_any_permission, require_permission
+from app.api.contractor_requests import _filter_department, _user_department
 from app.core.state import store
 from app.services.common import attendance_status, clean_str, is_housing_service, parse_date, today
 from app.services.contractor_requests import pending_counts, request_payload
@@ -29,7 +30,13 @@ def board(date: str = "", user: dict[str, Any] = Depends(require_permission("ope
         status = attendance_status(resident, on) or "غير محدد"
         statuses[status] = statuses.get(status, 0) + 1
         groups.setdefault(status, []).append(resident_payload(data, resident, on))
-    pending_requests = [request_payload(data, r) for r in data.get("contractorRequests", []) if r.get("stage") not in {"done", "rejected"}]
+    # مدير الإدارة يرى طلبات متعهدَي إدارته فقط
+    department = _user_department(data, user)
+    if department:
+        scoped_requests = _filter_department(data, list(data.get("contractorRequests", [])), department)
+    else:
+        scoped_requests = list(data.get("contractorRequests", []))
+    pending_requests = [request_payload(data, r) for r in scoped_requests if r.get("stage") not in {"done", "rejected"}]
     housing_requests = [r for r in data.get("requests", []) if r.get("status") == "قيد المراجعة"]
     return {
         "date": on.isoformat(),
@@ -40,7 +47,7 @@ def board(date: str = "", user: dict[str, Any] = Depends(require_permission("ope
             "pendingHousingRequests": len(housing_requests),
         },
         "groups": groups,
-        "stages": pending_counts(data),
+        "stages": pending_counts({"contractorRequests": scoped_requests}),
         "pendingContractorRequests": pending_requests[:50],
         "pendingHousingRequests": housing_requests[:50],
         "buildings": buildings_tree(data),

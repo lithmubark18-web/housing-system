@@ -9,6 +9,7 @@ from app.core.permissions import effective_permissions
 from app.core.state import store
 from app.schemas.schemas import ApproveRequest, RejectRequest
 from app.services.common import clean_str, is_staff, paged
+from app.services.housing import contractor_by_id
 from app.services.contractor_requests import (
     STAGE_LABELS,
     STAGE_PERMISSION,
@@ -24,14 +25,49 @@ router = APIRouter(prefix="/api/contractor-requests", tags=["contractor-requests
 ANY_STAGE = ("requests.supervise", "requests.security", "requests.visitor", "requests.department")
 
 
-def _scope(data: dict[str, Any], user: dict[str, Any]) -> dict[str, Any] | None:
-    """يرجع قيد المتعهد إن كان المستخدم حساب متعهد فقط."""
+def _user_department(data: dict[str, Any], user: dict[str, Any]) -> str:
+    """إدارة مدير الإدارة (فارغ = يرى كل الإدارات)."""
     permissions = set(effective_permissions(user, data.get("roles", [])))
+    if "requests.department" not in permissions:
+        return ""
+    return clean_str(user.get("department"))
+
+
+def _scope(data: dict[str, Any], user: dict[str, Any]) -> dict[str, Any] | None:
+    """يرجع قيد العرض: مدير الإدارة (إدارته فقط) أو حساب متعهد (طلباته فقط) أو None للمشرفين العامين."""
+    permissions = set(effective_permissions(user, data.get("roles", [])))
+    department = _user_department(data, user)
+    if department:
+        return {"department": department}
     if is_staff(user, data.get("roles", [])):
         return None
     if "contractor.portal" in permissions:
         return {"contractorId": user.get("contractorId")}
     raise HTTPException(status_code=403, detail="لا تملك صلاحية هذا الإجراء")
+
+
+def _filter_department(
+    data: dict[str, Any],
+    rows: list[dict[str, Any]],
+    department: str,
+) -> list[dict[str, Any]]:
+    if not department:
+        return rows
+    departments = {
+        str(c.get("id")): clean_str(c.get("department"))
+        for c in data.get("contractors", [])
+        if isinstance(c, dict)
+    }
+    return [r for r in rows if departments.get(str(r.get("contractorId"))) == department]
+
+
+def _guard_department(data: dict[str, Any], user: dict[str, Any], item: dict[str, Any]) -> None:
+    """مدير الإدارة لا يتلاعب بطلبات خارج إدارته."""
+    scope = _scope(data, user)
+    if scope and scope.get("department"):
+        contractor = contractor_by_id(data, item.get("contractorId"))
+        if clean_str((contractor or {}).get("department")) != scope["department"]:
+            raise HTTPException(status_code=403, detail="الطلب خارج نطاق إدارتك")
 
 
 def _find(data: dict[str, Any], request_id: str) -> dict[str, Any]:
@@ -62,8 +98,10 @@ def list_requests(
     data = store.read()
     scope = _scope(data, user)
     rows = list(data.get("contractorRequests", []))
-    if scope:
+    if scope and scope.get("contractorId"):
         rows = [r for r in rows if str(r.get("contractorId")) == str(scope["contractorId"])]
+    elif scope and scope.get("department"):
+        rows = _filter_department(data, rows, str(scope["department"]))
     elif contractorId:
         rows = [r for r in rows if str(r.get("contractorId")) == str(contractorId)]
     if stage == "pending":
@@ -84,7 +122,10 @@ def list_requests(
     rows.sort(key=lambda r: clean_str(r.get("createdAt")), reverse=True)
     payload = paged([request_payload(data, r) for r in rows], page, pageSize)
     payload["data"] = payload["items"]
-    payload["counts"] = pending_counts(data)
+    if scope and scope.get("department"):
+        payload["counts"] = pending_counts({"contractorRequests": rows})
+    else:
+        payload["counts"] = pending_counts(data)
     payload["stages"] = STAGE_LABELS
     return payload
 
@@ -93,16 +134,21 @@ def list_requests(
 def pending(user: dict[str, Any] = Depends(get_current_user)):
     data = store.read()
     scope = _scope(data, user)
-    if scope:
+    if scope and scope.get("contractorId"):
         own = [
             r for r in data.get("contractorRequests", [])
             if str(r.get("contractorId")) == str(scope["contractorId"])
         ]
+        scoped = {"contractorRequests": own}
         return {
             "total": len([r for r in own if r.get("stage") not in {"done", "rejected"}]),
             "done": len([r for r in own if r.get("stage") == "done"]),
             "rejected": len([r for r in own if r.get("stage") == "rejected"]),
+            **pending_counts(scoped),
         }
+    if scope and scope.get("department"):
+        own = _filter_department(data, list(data.get("contractorRequests", [])), str(scope["department"]))
+        return pending_counts({"contractorRequests": own})
     return pending_counts(data)
 
 
@@ -111,8 +157,9 @@ def get_request(request_id: str, user: dict[str, Any] = Depends(get_current_user
     data = store.read()
     scope = _scope(data, user)
     item = _find(data, request_id)
-    if scope and str(item.get("contractorId")) != str(scope["contractorId"]):
+    if scope and scope.get("contractorId") and str(item.get("contractorId")) != str(scope["contractorId"]):
         raise HTTPException(status_code=403, detail="لا تملك صلاحية عرض هذا الطلب")
+    _guard_department(data, user, item)
     return request_payload(data, item)
 
 
@@ -120,7 +167,7 @@ def get_request(request_id: str, user: dict[str, Any] = Depends(get_current_user
 def add_request(payload: dict[str, Any], user: dict[str, Any] = Depends(get_current_user)):
     data = store.read()
     scope = _scope(data, user)
-    forced = scope["contractorId"] if scope else None
+    forced = scope.get("contractorId") if scope else None
     if not forced and not (set(effective_permissions(user, data.get("roles", []))) & {"contractors.manage", "housing.manage"}):
         raise HTTPException(status_code=403, detail="لا تملك صلاحية إنشاء طلب متعهد")
     with store.atomic() as state:
@@ -137,6 +184,7 @@ def approve(
 ):
     with store.atomic() as data:
         item = _find(data, request_id)
+        _guard_department(data, user, item)
         target_stage = clean_str(stage) or str(item.get("stage"))
         _require_stage(user, data, target_stage)
         approve_request(
@@ -162,6 +210,7 @@ def approve_legacy(
     payload = payload or ApproveRequest()
     with store.atomic() as data:
         item = _find(data, request_id)
+        _guard_department(data, user, item)
         _require_stage(user, data, stage)
         approve_request(
             data,
@@ -184,5 +233,6 @@ def reject(
     payload = payload or RejectRequest()
     with store.atomic() as data:
         item = _find(data, request_id)
+        _guard_department(data, user, item)
         reject_request(data, item, user, payload.notes)
         return request_payload(data, item)

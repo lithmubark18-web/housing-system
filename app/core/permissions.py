@@ -174,6 +174,7 @@ def public_user(user: dict[str, Any], roles: Iterable[dict[str, Any]]) -> dict[s
         "contractorId": user.get("contractorId"),
         "contractorName": user.get("contractorName", ""),
         "companyName": user.get("companyName", ""),
+        "department": user.get("department", ""),
         "isActive": user.get("isActive", True) is not False,
         "mustChangePassword": bool(user.get("mustChangePassword")),
         "permissions": perms,
