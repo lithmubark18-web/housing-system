@@ -147,6 +147,8 @@ export default function LoginPage() {
         return;
       }
       await setLocalPin(pins[0], pending.username);
+      // حفظ الجلسة المحلية فوراً حتى يعمل الدخول دون إنترنت بعد أول دخول ناجح.
+      storeLocalSession(pending);
       goHome(pending);
       return;
     }
