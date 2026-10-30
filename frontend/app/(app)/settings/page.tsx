@@ -19,7 +19,7 @@ import {
   WifiOff,
 } from "lucide-react";
 import { logoutAllDevices, saveSettings } from "@/lib/api";
-import { clearCachedSnapshot, getConfig, normalizeBaseUrl, saveConfig } from "@/lib/offlineStore";
+import { clearCachedSnapshot, clearPinSkip, clearLocalPin, hasLocalPin, getConfig, normalizeBaseUrl, saveConfig, setLocalPin } from "@/lib/offlineStore";
 import { formatDateTime, formatNumber, timeAgo } from "@/lib/format";
 import { routePath } from "@/lib/nav";
 import { can, roleLabel } from "@/lib/permissions";
@@ -82,6 +82,8 @@ export default function SettingsPage() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [serverUrl, setServerUrl] = useState("");
+  const [pinDraft, setPinDraft] = useState(["", ""]);
+  const [pinStatus, setPinStatus] = useState("");
 
   const canManage = can(user, "admin.settings");
   const readOnly = offline || !canManage;
@@ -150,6 +152,29 @@ export default function SettingsPage() {
     if (!window.confirm("مسح النسخة المحفوظة للاستخدام دون إنترنت؟ ستحتاج للاتصال بالخادم لتحميل البيانات لاحقاً.")) return;
     clearCachedSnapshot();
     setNotice("تم مسح النسخة المحلية — أعد التحميل للحصول على بيانات جديدة");
+  }
+
+  async function savePin() {
+    if (!user) return;
+    if (pinDraft[0].length !== 4) {
+      setPinStatus("رمز PIN يجب أن يكون 4 أرقام");
+      return;
+    }
+    if (pinDraft[0] !== pinDraft[1]) {
+      setPinStatus("رمز التأكيد غير مطابق");
+      return;
+    }
+    await setLocalPin(pinDraft[0], user.username);
+    clearPinSkip(user.username);
+    setPinDraft(["", ""]);
+    setPinStatus("تم ضبط رمز الدخول دون إنترنت على هذا الجهاز");
+  }
+
+  async function removePin() {
+    if (!user) return;
+    if (!window.confirm(`مسح رمز PIN لحساب ${user.username} على هذا الجهاز؟ لن يتوفر الدخول دون إنترنت حتى إعادة ضبطه.`)) return;
+    clearLocalPin(user.username);
+    setPinStatus("تم مسح رمز PIN من هذا الجهاز");
   }
 
   function saveServerUrl() {
@@ -381,6 +406,40 @@ export default function SettingsPage() {
                   <button type="button" className="secondary-btn" onClick={saveServerUrl}>
                     <Save size={16} /> حفظ رابط الخادم
                   </button>
+                </>
+              )}
+
+              {user && (
+                <>
+                  <Field label={`رمز الدخول دون إنترنت لحساب ${user.username}`} hint={hasLocalPin(user.username) ? "الرمز مضبوط على هذا الجهاز" : "لا يوجد رمز — لن يعمل الدخول دون إنترنت حتى ضبطه"}>
+                    <div className="stack">
+                      <TextInput
+                        inputMode="numeric"
+                        type="password"
+                        value={pinDraft[0]}
+                        onChange={(event) => setPinDraft([event.target.value.replace(/\D/g, "").slice(0, 4), pinDraft[1]])}
+                        placeholder="رمز جديد (4 أرقام)"
+                      />
+                      <TextInput
+                        inputMode="numeric"
+                        type="password"
+                        value={pinDraft[1]}
+                        onChange={(event) => setPinDraft([pinDraft[0], event.target.value.replace(/\D/g, "").slice(0, 4)])}
+                        placeholder="تأكيد الرمز"
+                      />
+                    </div>
+                  </Field>
+                  <div className="row-actions">
+                    <button type="button" className="secondary-btn" onClick={savePin} disabled={offline || !pinDraft[0]}>
+                      <KeyRound size={16} /> {hasLocalPin(user.username) ? "تغيير الرمز" : "ضبط الرمز"}
+                    </button>
+                    {hasLocalPin(user.username) && (
+                      <button type="button" className="danger-btn" onClick={removePin} disabled={offline}>
+                        <WifiOff size={16} /> مسح الرمز
+                      </button>
+                    )}
+                  </div>
+                  {pinStatus && <Alert tone="info">{pinStatus}</Alert>}
                 </>
               )}
               <a className="secondary-btn" href={routePath("/about")}>

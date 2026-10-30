@@ -223,7 +223,7 @@ export function getBootstrap() {
 }
 
 export function getBootstrapVersion() {
-  return request<{ version: string; schemaVersion: number; serverTime: string; counts: Record<string, number>; mode: string }>(
+  return request<{ version: string; schemaVersion: number; serverTime: string; counts: Record<string, number>; pendingCounts: Record<string, number>; mode: string }>(
     "/api/bootstrap/version",
   );
 }

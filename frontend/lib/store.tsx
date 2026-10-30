@@ -6,9 +6,11 @@ import {
   apiLogin,
   clearSession,
   getBootstrap,
+  getBootstrapVersion,
   getStoredUser,
   healthProbe,
   logoutLocal,
+  notificationUnreadCount,
   readAllNotifications,
   readNotification,
   storeSession,
@@ -68,9 +70,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const inflight = useRef(false);
   const offlineRef = useRef(false);
   const mounted = useRef(true);
+  /** آخر إشارة تغيّر قادمة من الخادم (عدادات + إشعارات لم تُقرأ) لتفادي إعادة التحميل بلا داعٍ */
+  const lastSignalRef = useRef<string>("");
+  /** مرجع لأحدث payload حتى يقرأ المؤقت الدوري الحالة الجديدة دون إعادة تسجيل المؤقت */
+  const dataRef = useRef<Bootstrap | null>(null);
+
+  /** إشارة تغيّر البيانات: إشعارات لم تُقرأ + عدادات الخادم + عدادات مراحل الطلبات */
+  function signalOf(payload: Bootstrap | null, serverSignal?: Partial<{ counts: Record<string, number>; pendingCounts: Record<string, number>; unread: number }>): string {
+    const unread =
+      serverSignal?.unread !== undefined
+        ? serverSignal.unread
+        : (payload?.notifications || []).filter((item) => !item.read).length;
+    return JSON.stringify({
+      unread,
+      counts: serverSignal?.counts || payload?.meta?.counts || {},
+      pending: serverSignal?.pendingCounts || payload?.meta?.pendingCounts || {},
+    });
+  }
 
   const applyBootstrap = useCallback((payload: Bootstrap, isOffline: boolean) => {
     setData(payload);
+    dataRef.current = payload;
+    lastSignalRef.current = signalOf(payload);
     const nextUser = payload.user || null;
     setUserState(nextUser);
     if (nextUser) {
@@ -155,13 +176,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     window.addEventListener("online", goOnline);
     window.addEventListener("offline", goOffline);
     refresh().catch(() => {});
-    // إعادة محاولة دورية خفيفة كل 15 ثانية عند العمل بحالة "دون اتصال".
-    const timer = setInterval(() => {
-      if (offlineRef.current) refresh(true).catch(() => {});
-    }, 15000);
+    // فحص دوري خفيف كل 20 ثانية:
+    // - دون إنترنت (دخول PIN): إعادة محاولة المزامنة عند عودة الخادم.
+    // - متصل: مقارنة إشارة خفيفة (عدادات الخادم + إشعارات لم تُقرأ) وتحديث صامت كامل عند أي تغيّر.
+    const timer = setInterval(async () => {
+      if (inflight.current) return;
+      if (offlineRef.current) {
+        refresh(true).catch(() => {});
+        return;
+      }
+      const token = typeof window !== "undefined" ? window.localStorage.getItem("access_token") : null;
+      if (!token || !isOnline()) return;
+      try {
+        const [versionRes, unreadRes] = await Promise.all([
+          getBootstrapVersion(),
+          notificationUnreadCount(),
+        ]);
+        if (!mounted.current || inflight.current) return;
+        const serverSignal = signalOf(null, {
+          counts: versionRes.counts,
+          pendingCounts: versionRes.pendingCounts,
+          unread: unreadRes.unread,
+        });
+        if (serverSignal === lastSignalRef.current) {
+          setSyncedAt(new Date().toISOString());
+          return;
+        }
+        const ok = await refresh(true);
+        if (ok && mounted.current) lastSignalRef.current = serverSignal;
+      } catch {
+        /* تعذر الوصول للخادم — ننتظر الدورة التالية */
+      }
+    }, 20000);
+    // عند العودة للتبويب/التطبيق: فحص فوري بدل انتظار الدورة التالية.
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      if (inflight.current) return;
+      const token = typeof window !== "undefined" ? window.localStorage.getItem("access_token") : null;
+      if (!token) return;
+      refresh(true).catch(() => {});
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       mounted.current = false;
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("online", goOnline);
       window.removeEventListener("offline", goOffline);
     };

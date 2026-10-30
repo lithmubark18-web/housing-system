@@ -266,6 +266,22 @@ export function clearLocalPin(username: string) {
   window.localStorage.removeItem(pinKey(username));
 }
 
+/* تذكُّر قرار المستخدم بالتخلي عن رمز PIN حتى لا تُعرض شاشة الضبط في كل دخول */
+const KEY_PIN_SKIP_PREFIX = "hs_pin_skip_";
+
+export function hasPinSkip(username: string): boolean {
+  return loadJSON<boolean>(`${KEY_PIN_SKIP_PREFIX}${encodeURIComponent(username.toLowerCase())}`, false) === true;
+}
+
+export function setPinSkip(username: string) {
+  saveJSON(`${KEY_PIN_SKIP_PREFIX}${encodeURIComponent(username.toLowerCase())}`, true);
+}
+
+export function clearPinSkip(username: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(`${KEY_PIN_SKIP_PREFIX}${encodeURIComponent(username.toLowerCase())}`);
+}
+
 /* ------------------------------- اللقطة -------------------------------- */
 
 let snapshotMemory: CachedSnapshot | null = null;

@@ -102,5 +102,6 @@ def version():
         "schemaVersion": data.get("schemaVersion", 3),
         "serverTime": now_iso(),
         "counts": counts(data),
+        "pendingCounts": pending_counts(data),
         "mode": store.mode,
     }

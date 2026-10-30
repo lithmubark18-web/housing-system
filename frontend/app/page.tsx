@@ -7,9 +7,11 @@ import {
   backendBaseUrl,
   getCachedSnapshot,
   hasLocalPin,
+  hasPinSkip,
   isOnline,
   loadLocalSession,
   setLocalPin,
+  setPinSkip,
   storeLocalSession,
   tryOnlineLogin,
   verifyLocalPin,
@@ -79,11 +81,11 @@ export default function LoginPage() {
           window.location.assign(routePath("/change-password"));
           return;
         }
-        if (!hasLocalPin(result.user.username)) {
+        if (!hasLocalPin(result.user.username) && !hasPinSkip(result.user.username)) {
           setPending(result.user);
           setPins(["", ""]);
           setPhase("set_pin");
-          setNotice("يمكنك ضبط رمز PIN للدخول دون إنترنت على هذا الجهاز (اختياري).");
+          setNotice("يمكنك ضبط رمز PIN للدخول دون إنترنت على هذا الجهاز (اختياري) — أو تخطَّه الآن.");
           return;
         }
         goHome(result.user);
@@ -272,6 +274,11 @@ export default function LoginPage() {
                 type="button"
                 onClick={() => {
                   if (phase === "set_pin") {
+                    // تذكُّر قرار التخطي حتى لا تُعرض شاشة ضبط PIN في كل دخول
+                    if (pending) {
+                      setPinSkip(pending.username);
+                      storeLocalSession(pending);
+                    }
                     goHome(pending!);
                     return;
                   }
