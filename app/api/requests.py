@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.deps import require_any_permission, require_permission
 from app.core.state import store
+from app.core.housing_scope import scoped_data
+from app.core.housing_scope import canonical_housing_type, is_housing_monitor
 from app.schemas.schemas import RequestStatusRequest
 from app.services.common import clean_str, paged
 from app.services.housing import (
@@ -19,6 +21,52 @@ from app.services.housing import (
 router = APIRouter(prefix="/api/requests", tags=["requests"])
 
 
+def _ensure_monitor_request_scope(data: dict[str, Any], user: dict[str, Any], item: dict[str, Any]) -> None:
+    if not is_housing_monitor(user):
+        return
+
+    expected = canonical_housing_type(user.get("housingType"))
+    if not expected:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود ضمن نطاقك")
+
+    resident_id = item.get("residentId")
+    resident = next(
+        (
+            r for r in data.get("residents", [])
+            if resident_id is not None and str(r.get("id")) == str(resident_id)
+        ),
+        None,
+    )
+
+    if resident is None and item.get("employeeCode"):
+        code = str(item.get("employeeCode"))
+        resident = next(
+            (
+                r for r in data.get("residents", [])
+                if str(r.get("employeeCode") or "") == code
+            ),
+            None,
+        )
+
+    if not resident:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود ضمن نطاق نوع السكن المخصص لحسابك")
+
+    building_id = resident.get("buildingId")
+    building = next(
+        (
+            b for b in data.get("buildings", [])
+            if building_id is not None and str(b.get("id")) == str(building_id)
+        ),
+        None,
+    )
+
+    actual = canonical_housing_type((building or {}).get("housingType"))
+    if not actual or actual != expected:
+        raise HTTPException(status_code=404, detail="الطلب غير موجود ضمن نطاق نوع السكن المخصص لحسابك")
+
+
+
+
 @router.get("")
 def list_requests(
     status: str = "",
@@ -28,7 +76,7 @@ def list_requests(
     pageSize: int = Query(50, ge=1, le=500),
     user: dict[str, Any] = Depends(require_any_permission("requests.supervise", "residents.view", "operations.view")),
 ):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     rows = list(data.get("requests", []))
     if status:
         rows = [r for r in rows if clean_str(r.get("status")) == status]
@@ -59,7 +107,7 @@ def get_request(
     request_id: str,
     user: dict[str, Any] = Depends(require_any_permission("requests.supervise", "residents.view", "operations.view")),
 ):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     item = next((r for r in data.get("requests", []) if str(r.get("id")) == str(request_id)), None)
     if not item:
         raise HTTPException(status_code=404, detail="الطلب غير موجود")
@@ -81,12 +129,13 @@ def add_request(
 def change_status(
     request_id: str,
     payload: RequestStatusRequest,
-    user: dict[str, Any] = Depends(require_permission("requests.supervise")),
+    user: dict[str, Any] = Depends(require_any_permission("requests.supervise", "requests.housing_internal", "requests.housing_external")),
 ):
     with store.atomic() as data:
         item = next((r for r in data.get("requests", []) if str(r.get("id")) == str(request_id)), None)
         if not item:
             raise HTTPException(status_code=404, detail="الطلب غير موجود")
+        _ensure_monitor_request_scope(data, user, item)
         return set_request_status(data, item, payload.status, payload.notes, user)
 
 

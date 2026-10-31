@@ -7,6 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.api.deps import get_current_user, require_any_permission
 from app.core.permissions import effective_permissions
 from app.core.state import store
+from app.core.housing_scope import scoped_data
+from app.core.housing_scope import (
+    ensure_monitor_bed_scope,
+    ensure_monitor_contractor_scope,
+    is_housing_monitor,
+    monitor_permission,
+    monitor_request_visible,
+)
 from app.schemas.schemas import ApproveRequest, RejectRequest
 from app.services.common import clean_str, is_staff, paged
 from app.services.housing import contractor_by_id
@@ -22,7 +30,7 @@ from app.services.contractor_requests import (
 
 router = APIRouter(prefix="/api/contractor-requests", tags=["contractor-requests"])
 
-ANY_STAGE = ("requests.supervise", "requests.security", "requests.visitor", "requests.department")
+ANY_STAGE = ("requests.supervise", "requests.housing_internal", "requests.housing_external", "requests.security", "requests.visitor", "requests.department")
 
 
 def _user_department(data: dict[str, Any], user: dict[str, Any]) -> str:
@@ -77,11 +85,28 @@ def _find(data: dict[str, Any], request_id: str) -> dict[str, Any]:
     return item
 
 
-def _require_stage(user: dict[str, Any], data: dict[str, Any], stage: str) -> None:
+def _require_stage(
+    user: dict[str, Any],
+    data: dict[str, Any],
+    stage: str,
+    item: dict[str, Any] | None = None,
+    bed_id: str = "",
+) -> None:
     permission = STAGE_PERMISSION.get(stage)
     if not permission:
         raise HTTPException(status_code=400, detail="مرحلة الاعتماد غير معروفة")
-    if permission not in set(effective_permissions(user, data.get("roles", []))):
+    permissions = set(effective_permissions(user, data.get("roles", [])))
+    if stage == "housing" and is_housing_monitor(user):
+        required = monitor_permission(user)
+        if not required or required not in permissions:
+            raise HTTPException(status_code=403, detail="لا تملك صلاحية اعتماد هذا النوع من السكن")
+        if item:
+            contractor = contractor_by_id(data, item.get("contractorId"))
+            ensure_monitor_contractor_scope(data, user, contractor)
+            if bed_id:
+                ensure_monitor_bed_scope(data, user, bed_id, contractor)
+        return
+    if permission not in permissions:
         raise HTTPException(status_code=403, detail=f"لا تملك صلاحية اعتماد مرحلة {STAGE_LABELS.get(stage, stage)}")
 
 
@@ -95,9 +120,11 @@ def list_requests(
     pageSize: int = Query(50, ge=1, le=500),
     user: dict[str, Any] = Depends(get_current_user),
 ):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     scope = _scope(data, user)
     rows = list(data.get("contractorRequests", []))
+    if is_housing_monitor(user):
+        rows = [r for r in rows if monitor_request_visible(data, user, r)]
     if scope and scope.get("contractorId"):
         rows = [r for r in rows if str(r.get("contractorId")) == str(scope["contractorId"])]
     elif scope and scope.get("department"):
@@ -122,7 +149,7 @@ def list_requests(
     rows.sort(key=lambda r: clean_str(r.get("createdAt")), reverse=True)
     payload = paged([request_payload(data, r) for r in rows], page, pageSize)
     payload["data"] = payload["items"]
-    if scope and scope.get("department"):
+    if is_housing_monitor(user) or (scope and scope.get("department")):
         payload["counts"] = pending_counts({"contractorRequests": rows})
     else:
         payload["counts"] = pending_counts(data)
@@ -132,8 +159,11 @@ def list_requests(
 
 @router.get("/pending-counts")
 def pending(user: dict[str, Any] = Depends(get_current_user)):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     scope = _scope(data, user)
+    if is_housing_monitor(user):
+        own = [r for r in data.get("contractorRequests", []) if monitor_request_visible(data, user, r)]
+        return pending_counts({"contractorRequests": own})
     if scope and scope.get("contractorId"):
         own = [
             r for r in data.get("contractorRequests", [])
@@ -154,9 +184,11 @@ def pending(user: dict[str, Any] = Depends(get_current_user)):
 
 @router.get("/{request_id}")
 def get_request(request_id: str, user: dict[str, Any] = Depends(get_current_user)):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     scope = _scope(data, user)
     item = _find(data, request_id)
+    if is_housing_monitor(user) and not monitor_request_visible(data, user, item):
+        raise HTTPException(status_code=404, detail="الطلب غير موجود ضمن نطاق نوع السكن المخصص لحسابك")
     if scope and scope.get("contractorId") and str(item.get("contractorId")) != str(scope["contractorId"]):
         raise HTTPException(status_code=403, detail="لا تملك صلاحية عرض هذا الطلب")
     _guard_department(data, user, item)
@@ -165,7 +197,7 @@ def get_request(request_id: str, user: dict[str, Any] = Depends(get_current_user
 
 @router.post("", status_code=201)
 def add_request(payload: dict[str, Any], user: dict[str, Any] = Depends(get_current_user)):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     scope = _scope(data, user)
     forced = scope.get("contractorId") if scope else None
     if not forced and not (set(effective_permissions(user, data.get("roles", []))) & {"contractors.manage", "housing.manage"}):
@@ -186,7 +218,7 @@ def approve(
         item = _find(data, request_id)
         _guard_department(data, user, item)
         target_stage = clean_str(stage) or str(item.get("stage"))
-        _require_stage(user, data, target_stage)
+        _require_stage(user, data, target_stage, item, payload.bedId or item.get("bedId") or "")
         approve_request(
             data,
             item,
@@ -211,7 +243,7 @@ def approve_legacy(
     with store.atomic() as data:
         item = _find(data, request_id)
         _guard_department(data, user, item)
-        _require_stage(user, data, stage)
+        _require_stage(user, data, stage, item, payload.bedId or item.get("bedId") or "")
         approve_request(
             data,
             item,
@@ -234,5 +266,6 @@ def reject(
     with store.atomic() as data:
         item = _find(data, request_id)
         _guard_department(data, user, item)
+        _require_stage(user, data, str(item.get("stage") or ""), item)
         reject_request(data, item, user, payload.notes)
         return request_payload(data, item)

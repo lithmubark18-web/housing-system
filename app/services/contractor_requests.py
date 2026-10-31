@@ -83,17 +83,35 @@ def _notify_contractor_users(data: dict[str, Any], contractor_id: Any, title: st
         )
 
 
-def _notify_stage(data: dict[str, Any], stage: str, title: str, body: str, actor: dict[str, Any] | None) -> None:
+def _notify_stage(
+    data: dict[str, Any],
+    stage: str,
+    title: str,
+    body: str,
+    actor: dict[str, Any] | None,
+    contractor_id: Any = None,
+) -> None:
+    if stage == "housing" and contractor_id:
+        contractor = contractor_by_id(data, contractor_id)
+        building_ids = {str(v) for v in ((contractor or {}).get("buildingIds") or [])}
+        kinds = set()
+        for building in data.get("buildings", []):
+            if str(building.get("id")) in building_ids:
+                raw = str(building.get("housingType") or "internal").strip().casefold()
+                kinds.add("external" if raw in {"external", "outside", "خارجي", "خارج", "سكن خارجي"} else "internal")
+        if len(kinds) == 1:
+            kind = next(iter(kinds))
+            add_notification(
+                data, title=title, body=body, kind="request",
+                permission=("requests.housing_external" if kind == "external" else "requests.housing_internal"),
+                link="/requests", actor=actor,
+            )
+        return
     permission = STAGE_PERMISSION.get(stage)
     if permission:
         add_notification(
-            data,
-            title=title,
-            body=body,
-            kind="request",
-            permission=permission,
-            link="/requests",
-            actor=actor,
+            data, title=title, body=body, kind="request", permission=permission,
+            link="/requests", actor=actor,
         )
 
 
@@ -466,6 +484,7 @@ def approve_request(
             data, str(request.get("stage")), "طلب بانتظار اعتمادك",
             f"{request.get('contractorName')} — {request.get('workerName')}",
             actor,
+            contractor_id=request.get("contractorId"),
         )
     return request
 

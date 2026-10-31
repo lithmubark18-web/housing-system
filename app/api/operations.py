@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from app.api.deps import get_current_user, require_any_permission, require_permission
 from app.api.contractor_requests import _filter_department, _user_department
 from app.core.state import store
+from app.core.housing_scope import scoped_data
 from app.services.common import attendance_status, clean_str, is_housing_service, parse_date, today
 from app.services.contractor_requests import pending_counts, request_payload
 from app.services.housing import buildings_tree, resident_payload
@@ -21,7 +22,7 @@ def _date_or_today(value: str = ""):
 
 @router.get("/board")
 def board(date: str = "", user: dict[str, Any] = Depends(require_permission("operations.view"))):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     on = _date_or_today(date)
     housing = [r for r in data.get("residents", []) if is_housing_service(r)]
     statuses: dict[str, int] = {}
@@ -61,13 +62,13 @@ def attendance(
     date: str = "",
     user: dict[str, Any] = Depends(require_permission("operations.view")),
 ):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     return attendance_report(data, groupBy, _date_or_today(date))
 
 
 @router.get("/duty")
 def duty(date: str = "", user: dict[str, Any] = Depends(require_permission("operations.view"))):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     return duty_report(data, _date_or_today(date))
 
 
@@ -77,7 +78,7 @@ def residents_by_status(
     q: str = "",
     user: dict[str, Any] = Depends(require_any_permission("operations.view", "residents.view")),
 ):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     on = today()
     needle = clean_str(q).lower()
     rows: list[dict[str, Any]] = []

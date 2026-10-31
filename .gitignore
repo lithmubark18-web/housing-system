@@ -7,3 +7,18 @@ __pycache__/
 data.json
 data.json.tmp
 test_data.json
+
+# Alghaith housing local files
+/backups/
+/.backups/
+/backend/.env
+/backend/.venv/
+/backend/__pycache__/
+/backend/*.log
+/backend/data*.json
+/backend/debug_data*.json
+/backend/seed.json
+/backend/*.bak
+/frontend/node_modules/
+/frontend/.next/
+/frontend/*.log

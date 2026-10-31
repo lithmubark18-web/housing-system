@@ -7,6 +7,8 @@ from fastapi.responses import Response
 
 from app.api.deps import require_permission
 from app.core.state import store
+from app.core.housing_scope import scoped_data
+from app.core.housing_scope import is_housing_monitor
 from app.services.common import build_csv, clean_str, date_only, parse_date, today
 from app.services.reports import (
     BUILDING_HEADERS,
@@ -30,7 +32,7 @@ def _date_or_today(value: str = ""):
 
 @router.get("/dashboard")
 def get_dashboard(date: str = "", user: dict[str, Any] = Depends(require_permission("dashboard.view"))):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     return dashboard(data, _date_or_today(date))
 
 
@@ -40,31 +42,33 @@ def get_attendance(
     date: str = "",
     user: dict[str, Any] = Depends(require_permission("reports.view")),
 ):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     return attendance_report(data, groupBy, _date_or_today(date))
 
 
 @router.get("/occupancy")
 def get_occupancy(user: dict[str, Any] = Depends(require_permission("reports.view"))):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     return occupancy_report(data)
 
 
 @router.get("/contractors")
 def get_contractors(user: dict[str, Any] = Depends(require_permission("reports.view"))):
-    data = store.read()
+    if is_housing_monitor(user):
+        raise HTTPException(status_code=403, detail="تقرير المتعهدين مخصص لمدير النظام")
+    data = scoped_data(store.read(), user)
     return contractors_report(data)
 
 
 @router.get("/requests")
 def get_requests(user: dict[str, Any] = Depends(require_permission("reports.view"))):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     return requests_report(data)
 
 
 @router.get("/duty")
 def get_duty(date: str = "", user: dict[str, Any] = Depends(require_permission("reports.view"))):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     return duty_report(data, _date_or_today(date))
 
 
@@ -121,9 +125,12 @@ def export_report(
     date: str = "",
     user: dict[str, Any] = Depends(require_permission("reports.export")),
 ):
-    data = store.read()
+    data = scoped_data(store.read(), user)
+    export_kind = clean_str(kind)
+    if is_housing_monitor(user) and export_kind in {"buildings", "contractors", "requests"}:
+        raise HTTPException(status_code=403, detail="هذا النوع من التصدير مخصص لمدير النظام")
     on = _date_or_today(date)
-    headers, rows, name = _export_rows(data, clean_str(kind), on)
+    headers, rows, name = _export_rows(data, export_kind, on)
     content = build_csv(headers, rows)
     filename = f"{name}-{on.isoformat()}.csv"
     return Response(

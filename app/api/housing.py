@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import require_any_permission, require_permission
 from app.core.state import store
+from app.core.housing_scope import scoped_data
+from app.core.housing_scope import is_housing_monitor, monitor_guest_tree
 from app.services.common import ServiceError, clean_str, now_iso, paged
 from app.services.housing import (
     bed_by_id,
@@ -47,16 +49,59 @@ def _bed_payload(data: dict[str, Any], bed: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+
+
+def _classified_buildings_tree(
+    data: dict[str, Any],
+    user: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Add canonical housing type and scope monitor building visibility."""
+    items = buildings_tree(data)
+
+    source_by_id = {
+        str(building.get("id")): building
+        for building in data.get("buildings", [])
+        if isinstance(building, dict)
+    }
+
+    from app.services.housing import normalize_housing_type
+
+    for item in items:
+        original = source_by_id.get(str(item.get("id")), {})
+        raw_type = original.get("housingType", item.get("housingType"))
+        item["housingType"] = normalize_housing_type(raw_type) or "internal"
+
+    role_id = str(user.get("roleId") or "")
+    if not role_id:
+        role_id = "r_housing" if user.get("role") == "housingSupervisor" else ""
+
+    if role_id == "r_housing":
+        assigned_type = normalize_housing_type(user.get("housingType"))
+        if assigned_type not in {"internal", "external"}:
+            return []
+
+        return [
+            item for item in items
+            if item.get("housingType") == assigned_type
+        ]
+
+    return items
+
+
 @router.get("/tree")
-def tree(user: dict[str, Any] = Depends(require_permission("housing.view"))):
-    data = store.read()
-    return {"buildings": buildings_tree(data), "generatedAt": now_iso()}
+def tree(user: dict[str, Any] = Depends(require_any_permission("housing.view", "guests.manage"))):
+    data = scoped_data(store.read(), user)
+    items = _classified_buildings_tree(data, user)
+    if is_housing_monitor(user):
+        items = monitor_guest_tree(data, items)
+    return {"buildings": items, "generatedAt": now_iso()}
 
 
 @router.get("/buildings")
 def list_buildings(user: dict[str, Any] = Depends(require_permission("housing.view"))):
-    data = store.read()
-    return {"items": buildings_tree(data), "total": len(data.get("buildings", []))}
+    data = scoped_data(store.read(), user)
+    items = _classified_buildings_tree(data, user)
+    return {"items": items, "total": len(items)}
 
 
 @router.post("/buildings", status_code=201)
@@ -109,7 +154,7 @@ def list_rooms(
     buildingId: str = "",
     user: dict[str, Any] = Depends(require_permission("housing.view")),
 ):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     used = used_bed_ids(data)
     rooms: list[dict[str, Any]] = []
     for room in data.get("rooms", []):
@@ -175,7 +220,7 @@ def list_beds(
     pageSize: int = 100,
     user: dict[str, Any] = Depends(require_permission("housing.view")),
 ):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     used = used_bed_ids(data)
     rows: list[dict[str, Any]] = []
     needle = clean_str(q).lower()
@@ -244,7 +289,7 @@ def list_rotations(
     status: str = "",
     user: dict[str, Any] = Depends(require_permission("housing.view")),
 ):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     rows = data.get("rotations", [])
     if status:
         rows = [r for r in rows if clean_str(r.get("status")) == status]

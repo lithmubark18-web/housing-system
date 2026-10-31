@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from app.api.deps import get_current_user
 from app.core.permissions import effective_permissions
 from app.core.state import store
+from app.core.housing_scope import scoped_data
 from app.services.common import clean_str
 from app.services.contractor_requests import request_payload
 
@@ -19,7 +20,7 @@ def global_search(
     limit: int = Query(8, ge=1, le=25),
     user: dict[str, Any] = Depends(get_current_user),
 ):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     permissions = set(effective_permissions(user, data.get("roles", [])))
     needle = clean_str(q).lower()
     if not needle:

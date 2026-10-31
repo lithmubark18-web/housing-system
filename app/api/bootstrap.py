@@ -13,6 +13,8 @@ from app.services.common import clean_str, is_staff, now_iso, notifications_for
 from app.services.contractor_requests import pending_counts, request_payload
 from app.services.housing import buildings_tree, contractor_payload, resident_payload
 
+from app.core.housing_scope import scoped_data
+
 router = APIRouter(prefix="/api", tags=["bootstrap"])
 
 
@@ -45,7 +47,7 @@ def _contractor_bootstrap(data: dict[str, Any], user: dict[str, Any]) -> dict[st
 
 @router.get("/bootstrap")
 def bootstrap(user: dict[str, Any] = Depends(get_current_user)):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     roles = data.get("roles", [])
     permissions = set(effective_permissions(user, roles))
     staff = is_staff(user, roles)

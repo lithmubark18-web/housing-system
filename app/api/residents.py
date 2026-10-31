@@ -7,6 +7,7 @@ from fastapi.responses import Response
 
 from app.api.deps import get_current_user, require_any_permission, require_permission
 from app.core.state import store
+from app.core.housing_scope import scoped_data
 from app.schemas.schemas import AssignBedRequest, BulkAssignRequest, BulkResidentsRequest
 from app.services.common import (
     ServiceError,
@@ -117,7 +118,7 @@ def list_residents(
     sort: str = "name",
     user: dict[str, Any] = Depends(require_permission("residents.view")),
 ):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     rows = _filter_residents(
         data,
         q=q,
@@ -146,7 +147,7 @@ def list_residents(
 
 @router.get("/export.csv")
 def export_residents(user: dict[str, Any] = Depends(require_any_permission("residents.import", "reports.export"))):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     headers = [
         "الرقم الوظيفي", "رقم البطاقة", "الاسم", "المسمى الوظيفي", "الشركة/المتعهد",
         "الإدارة", "نوع الخدمة", "نوع الدوام", "تصنيف النقل", "الجنس",
@@ -191,7 +192,7 @@ def import_template(user: dict[str, Any] = Depends(require_permission("residents
 
 @router.get("/{resident_id}")
 def get_resident(resident_id: str, user: dict[str, Any] = Depends(require_permission("residents.view"))):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     resident = resident_by_id(data, resident_id)
     if not resident:
         raise HTTPException(status_code=404, detail="الساكن غير موجود")
@@ -200,7 +201,7 @@ def get_resident(resident_id: str, user: dict[str, Any] = Depends(require_permis
 
 @router.get("/{resident_id}/history")
 def resident_history(resident_id: str, user: dict[str, Any] = Depends(require_permission("residents.view"))):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     if not resident_by_id(data, resident_id):
         raise HTTPException(status_code=404, detail="الساكن غير موجود")
     rows = [

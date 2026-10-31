@@ -47,6 +47,19 @@ def list_users(
 ):
     data = store.read()
     rows = users_payload(data)
+    source_by_id = {
+        str(item.get("id")): item
+        for item in data.get("users", [])
+    }
+    source_by_username = {
+        str(item.get("username", "")).lower(): item
+        for item in data.get("users", [])
+    }
+    for row in rows:
+        source = source_by_id.get(str(row.get("id")))
+        if source is None:
+            source = source_by_username.get(str(row.get("username", "")).lower())
+        row["housingType"] = source.get("housingType") if source else None
     if q:
         needle = clean_str(q).lower()
         rows = [

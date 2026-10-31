@@ -7,6 +7,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.api.deps import require_any_permission, require_permission
 from app.core.permissions import effective_permissions
 from app.core.state import store
+from app.core.housing_scope import scoped_data
+from app.core.housing_scope import (
+    ensure_monitor_contractor_scope,
+    is_housing_monitor,
+    monitor_bed_matches,
+)
 from app.schemas.schemas import LinkWorkersRequest
 from app.services.admin import (
     contractor_portal,
@@ -32,7 +38,7 @@ router = APIRouter(prefix="/api/contractors", tags=["contractors"])
 
 def _require_portal_access(data: dict[str, Any], user: dict[str, Any], contractor_id: str) -> None:
     permissions = set(effective_permissions(user, data.get("roles", [])))
-    if "contractors.manage" in permissions or "housing.view" in permissions or "residents.view" in permissions:
+    if "contractors.manage" in permissions or "contractors.view" in permissions:
         return
     if "contractor.portal" in permissions and str(user.get("contractorId")) == str(contractor_id):
         return
@@ -45,9 +51,9 @@ def list_contractors(
     status: str = "",
     page: int = 1,
     pageSize: int = 100,
-    user: dict[str, Any] = Depends(require_any_permission("contractors.manage", "housing.view", "residents.view")),
+    user: dict[str, Any] = Depends(require_any_permission("contractors.manage", "contractors.view")),
 ):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     rows = [contractor_payload(data, c) for c in data.get("contractors", [])]
     if status:
         rows = [r for r in rows if clean_str(r.get("status")) == status]
@@ -66,9 +72,9 @@ def list_contractors(
 @router.get("/{contractor_id}")
 def get_contractor(
     contractor_id: str,
-    user: dict[str, Any] = Depends(require_any_permission("contractors.manage", "housing.view", "residents.view")),
+    user: dict[str, Any] = Depends(require_any_permission("contractors.manage", "contractors.view")),
 ):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     contractor = contractor_by_id(data, contractor_id)
     if not contractor:
         raise HTTPException(status_code=404, detail="المتعهد غير موجود")
@@ -78,9 +84,9 @@ def get_contractor(
 @router.get("/{contractor_id}/stats")
 def get_stats(
     contractor_id: str,
-    user: dict[str, Any] = Depends(require_any_permission("contractors.manage", "housing.view", "reports.view")),
+    user: dict[str, Any] = Depends(require_any_permission("contractors.manage", "contractors.view")),
 ):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     contractor = contractor_by_id(data, contractor_id)
     if not contractor:
         raise HTTPException(status_code=404, detail="المتعهد غير موجود")
@@ -90,9 +96,9 @@ def get_stats(
 @router.get("/{contractor_id}/workers")
 def get_workers(
     contractor_id: str,
-    user: dict[str, Any] = Depends(require_any_permission("contractors.manage", "housing.view")),
+    user: dict[str, Any] = Depends(require_any_permission("contractors.manage", "contractors.view")),
 ):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     contractor = contractor_by_id(data, contractor_id)
     if not contractor:
         raise HTTPException(status_code=404, detail="المتعهد غير موجود")
@@ -173,17 +179,21 @@ def unlink_worker(
 @router.get("/{contractor_id}/free-beds")
 def get_free_beds(
     contractor_id: str,
-    user: dict[str, Any] = Depends(require_any_permission("requests.supervise", "housing.manage")),
+    user: dict[str, Any] = Depends(require_any_permission("requests.supervise", "housing.manage", "requests.housing_internal", "requests.housing_external")),
 ):
     """الأسرّة الفعلية المتاحة لدى المتعهد — يستخدمها مشرف السكن لتحديد الغرفة/السرير."""
-    data = store.read()
+    data = scoped_data(store.read(), user)
     contractor = contractor_by_id(data, contractor_id)
     if not contractor:
         raise HTTPException(status_code=404, detail="المتعهد غير موجود")
+    if is_housing_monitor(user):
+        ensure_monitor_contractor_scope(data, user, contractor)
     from app.services.housing import free_beds_for_contractor
 
     beds = []
     for bed in free_beds_for_contractor(data, contractor_id):
+        if is_housing_monitor(user) and not monitor_bed_matches(data, user, bed, contractor):
+            continue
         room = room_by_id(data, bed.get("roomId"))
         building = building_by_id(data, (room or {}).get("buildingId"))
         beds.append({
@@ -199,7 +209,7 @@ def get_free_beds(
 
 @router.get("/{contractor_id}/portal")
 def portal(contractor_id: str, user: dict[str, Any] = Depends(require_any_permission("contractor.portal", "contractors.manage"))):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     _require_portal_access(data, user, contractor_id)
     result = contractor_portal(data, contractor_id)
     result["requests"] = [request_payload(data, r) for r in result.get("requests", [])]

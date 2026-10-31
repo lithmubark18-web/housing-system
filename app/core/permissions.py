@@ -2,6 +2,32 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
+
+def _canonical_housing_type(value: Any) -> str | None:
+    """Normalize monitor and building housing classification."""
+    key = " ".join(str(value or "").strip().casefold().split())
+
+    if key in {
+        "internal",
+        "inside",
+        "\u062f\u0627\u062e\u0644\u064a",
+        "\u062f\u0627\u062e\u0644",
+        "\u0633\u0643\u0646 \u062f\u0627\u062e\u0644\u064a",
+    }:
+        return "internal"
+
+    if key in {
+        "external",
+        "outside",
+        "\u062e\u0627\u0631\u062c\u064a",
+        "\u062e\u0627\u0631\u062c",
+        "\u0633\u0643\u0646 \u062e\u0627\u0631\u062c\u064a",
+    }:
+        return "external"
+
+    return None
+
+
 # ---------------------------------------------------------------------------
 # كتالوج الصلاحيات — نفس معرّفات التطبيق الحالي مع صلاحيات إضافية للنسخة الجديدة.
 # ---------------------------------------------------------------------------
@@ -18,7 +44,12 @@ PERMISSIONS: list[dict[str, str]] = [
     {"id": "requests.security", "label": "الاعتماد الأمني (مشرف الأمن)", "group": "الاعتماد"},
     {"id": "requests.visitor", "label": "اعتماد مراقب الزوار (كود الموظف والعمر)", "group": "الاعتماد"},
     {"id": "requests.department", "label": "ادارة المتعهد/المقاول (اعتماد مدير الإدارة قبل مشرف الأمن)", "group": "الاعتماد"},
+    {"id": "requests.housing_internal", "label": "اعتماد طلبات السكن الداخلي", "group": "الاعتماد"},
+    {"id": "requests.housing_external", "label": "اعتماد طلبات السكن الخارجي", "group": "الاعتماد"},
     {"id": "contractor.portal", "label": "بوابة المتعهد/المقاول", "group": "خاص"},
+    {"id": "guests.view", "label": "عرض سجل الزوار (تقارير)", "group": "الشاشات"},
+    {"id": "guests.manage", "label": "تسجيل وتسكين الزوار (تدوين خارجي)", "group": "العمليات"},
+    {"id": "contractors.view", "label": "عرض المتعهدين وعمالتهم", "group": "الشاشات"},
     {"id": "admin.users", "label": "إدارة المستخدمين والأدوار", "group": "الإدارة"},
     # صلاحيات جديدة
     {"id": "residents.import", "label": "استيراد وتصدير بيانات السكان", "group": "العمليات"},
@@ -36,15 +67,13 @@ ROLE_DEFAULT_PERMISSIONS: dict[str, list[str]] = {
     "r_housing": [
         "dashboard.view",
         "residents.view",
-        "housing.view",
         "operations.view",
         "reports.view",
-        "residents.manage",
-        "residents.import",
         "reports.export",
-        "housing.manage",
-        "contractors.manage",
-        "requests.supervise",
+        "guests.view",
+        "guests.manage",
+        "requests.housing_internal",
+        "requests.housing_external",
     ],
     "r_security": ["operations.view", "requests.security"],
     "r_visitor": ["operations.view", "requests.visitor"],
@@ -54,6 +83,7 @@ ROLE_DEFAULT_PERMISSIONS: dict[str, list[str]] = {
         "dashboard.view",
         "operations.view",
         "requests.department",
+        "contractors.view",
     ],
 }
 
@@ -61,7 +91,7 @@ SYSTEM_ROLES: list[dict[str, Any]] = [
     {
         "id": "r_housing",
         "name": "مراقب السكن",
-        "description": "يشرف على السكن والسكان ويعتمد طلبات المتعهدين أولياً",
+        "description": "متابعة السكان والعمليات والزوار واعتماد طلبات السكن حسب النوع المخصص",
         "isSystem": True,
         "permissionIds": ROLE_DEFAULT_PERMISSIONS["r_housing"],
     },
@@ -148,8 +178,28 @@ def effective_permissions(user: dict[str, Any], roles: Iterable[dict[str, Any]])
     role_id = role.get("id") if role else default_role_id(user)
     if role_id == "r_admin":
         return list(PERMISSION_IDS)
+
+    # مراقب السكن يحصل على قائمة مغلقة؛ لا تسمح الصلاحيات الإضافية للمستخدم
+    # أو الصلاحيات القديمة المحفوظة في الدور بتجاوز نطاق السكن.
+    monitor_role_id = str(user.get("roleId") or default_role_id(user))
+    if monitor_role_id == "r_housing":
+        housing_type = _canonical_housing_type(user.get("housingType"))
+        allowed = {
+            "dashboard.view",
+            "residents.view",
+            "operations.view",
+            "reports.view",
+            "reports.export",
+            "guests.view",
+            "guests.manage",
+        }
+        if housing_type == "internal":
+            allowed.add("requests.housing_internal")
+        elif housing_type == "external":
+            allowed.add("requests.housing_external")
+        return [p for p in PERMISSION_IDS if p in allowed]
+
     perms = permissions_for_role(role)
-    # صلاحية صريحة على مستوى المستخدم (اختيارية) تُضاف فوق صلاحيات الدور.
     extra = user.get("permissionIds") or []
     if isinstance(extra, list):
         perms.update(str(v) for v in extra if str(v) in PERMISSION_LABELS)
@@ -163,6 +213,7 @@ def has_permission(user: dict[str, Any], roles: Iterable[dict[str, Any]], permis
 def public_user(user: dict[str, Any], roles: Iterable[dict[str, Any]]) -> dict[str, Any]:
     role = role_for(user, roles)
     perms = effective_permissions(user, roles)
+    housing_type = _canonical_housing_type(user.get("housingType"))
     data = {
         "id": user.get("id"),
         "name": user.get("name", ""),
@@ -175,6 +226,7 @@ def public_user(user: dict[str, Any], roles: Iterable[dict[str, Any]]) -> dict[s
         "contractorName": user.get("contractorName", ""),
         "companyName": user.get("companyName", ""),
         "department": user.get("department", ""),
+        "housingType": housing_type,
         "isActive": user.get("isActive", True) is not False,
         "mustChangePassword": bool(user.get("mustChangePassword")),
         "permissions": perms,

@@ -552,12 +552,15 @@ def create_housing_request(data: dict[str, Any], payload: dict[str, Any], actor:
     }
     data.setdefault("requests", []).insert(0, item)
     add_audit(data, actor, "request_created", "housing_request", item["id"], {"type": request_type})
+    resident_building = building_by_id(data, (resident or {}).get("buildingId")) if resident else None
+    request_housing_type = normalize_housing_type((resident_building or {}).get("housingType")) or "internal"
+    request_permission = "requests.housing_external" if request_housing_type == "external" else "requests.housing_internal"
     add_notification(
         data,
         title="طلب سكن جديد",
         body=f"{request_type} — {resident_name}",
         kind="request",
-        permission="requests.supervise",
+        permission=request_permission,
         link="/operations",
         actor=actor,
     )
@@ -653,3 +656,36 @@ def cancel_rotation(data: dict[str, Any], rotation: dict[str, Any], actor: dict[
     rotation["cancelledAt"] = now_iso()
     add_audit(data, actor, "rotation_cancelled", "rotation", rotation.get("id"))
     return rotation
+
+
+
+def normalize_housing_type(value: Any) -> str | None:
+    """Return the canonical housing classification code."""
+    key = " ".join(str(value or "").strip().casefold().split())
+
+    if key in {
+        "internal",
+        "inside",
+        "\u062f\u0627\u062e\u0644\u064a",
+        "\u062f\u0627\u062e\u0644",
+        "\u0633\u0643\u0646 \u062f\u0627\u062e\u0644\u064a",
+    }:
+        return "internal"
+
+    if key in {
+        "external",
+        "outside",
+        "\u062e\u0627\u0631\u062c\u064a",
+        "\u062e\u0627\u0631\u062c",
+        "\u0633\u0643\u0646 \u062e\u0627\u0631\u062c\u064a",
+    }:
+        return "external"
+
+    return None
+
+
+
+def guest_active_on_bed(guest: dict[str, Any]) -> bool:
+    """Return whether a guest currently occupies a bed."""
+    status = str(guest.get("status") or "staying").strip().lower()
+    return status in {"staying", "extended"}

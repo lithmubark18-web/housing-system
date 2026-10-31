@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_current_user
 from app.core.state import store
+from app.core.housing_scope import scoped_data
 from app.services.common import mark_notification_read, notifications_for
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
@@ -13,7 +14,7 @@ router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 @router.get("")
 def list_notifications(unreadOnly: bool = False, user: dict[str, Any] = Depends(get_current_user)):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     items = notifications_for(data, user, data.get("roles", []))
     unread = [item for item in items if not item.get("read")]
     if unreadOnly:
@@ -23,7 +24,7 @@ def list_notifications(unreadOnly: bool = False, user: dict[str, Any] = Depends(
 
 @router.get("/unread-count")
 def unread_count(user: dict[str, Any] = Depends(get_current_user)):
-    data = store.read()
+    data = scoped_data(store.read(), user)
     items = notifications_for(data, user, data.get("roles", []))
     return {"unread": len([item for item in items if not item.get("read")])}
 

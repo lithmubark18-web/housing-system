@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
@@ -30,7 +30,7 @@ from app.services.common import ServiceError, now_iso
 
 logger = logging.getLogger("uvicorn.error")
 
-DIST_DIR = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+DIST_DIR = Path(__file__).resolve().parents[1] / "frontend" / "dist"
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -49,15 +49,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 async def lifespan(_: FastAPI):
     errors = settings.runtime_errors()
     if errors:
-        raise RuntimeError("إعدادات أمان غير صالحة: " + " ; ".join(errors))
+        raise RuntimeError("ط¥ط¹ط¯ط§ط¯ط§طھ ط£ظ…ط§ظ† ط؛ظٹط± طµط§ظ„ط­ط©: " + " ; ".join(errors))
     store.initialize()
     for warning in settings.runtime_warnings():
         logger.warning("SECURITY: %s", warning)
     data = store.read()
     if not data.get("users"):
-        logger.error("لا يوجد مستخدمون في قاعدة البيانات — تعذّر تحميل البذرة")
+        logger.error("ظ„ط§ ظٹظˆط¬ط¯ ظ…ط³طھط®ط¯ظ…ظˆظ† ظپظٹ ظ‚ط§ط¹ط¯ط© ط§ظ„ط¨ظٹط§ظ†ط§طھ â€” طھط¹ط°ظ‘ط± طھط­ظ…ظٹظ„ ط§ظ„ط¨ط°ط±ط©")
     else:
-        logger.info("نظام إدارة السكن جاهز — %s مستخدم، %s ساكن", len(data.get("users", [])), len(data.get("residents", [])))
+        logger.info("ظ†ط¸ط§ظ… ط¥ط¯ط§ط±ط© ط§ظ„ط³ظƒظ† ط¬ط§ظ‡ط² â€” %s ظ…ط³طھط®ط¯ظ…طŒ %s ط³ط§ظƒظ†", len(data.get("users", [])), len(data.get("residents", [])))
     yield
 
 
@@ -90,8 +90,8 @@ async def service_error_handler(_: Request, exc: ServiceError):
 async def validation_error_handler(_: Request, exc: RequestValidationError):
     first = exc.errors()[0] if exc.errors() else {}
     field = ".".join(str(part) for part in first.get("loc", []) if part not in ("body", "query"))
-    message = first.get("msg", "بيانات غير صالحة")
-    detail = f"حقل «{field}»: {message}" if field else message
+    message = first.get("msg", "ط¨ظٹط§ظ†ط§طھ ط؛ظٹط± طµط§ظ„ط­ط©")
+    detail = f"ط­ظ‚ظ„ آ«{field}آ»: {message}" if field else message
     return JSONResponse(status_code=422, content={"detail": detail, "errors": exc.errors()})
 
 
@@ -147,11 +147,11 @@ def root():
 
 @app.get("/{path:path}", include_in_schema=False)
 def static_site(path: str):
-    """يقدّم واجهة Next.js المبنية (نشر خدمة واحدة)."""
+    """ظٹظ‚ط¯ظ‘ظ… ظˆط§ط¬ظ‡ط© Next.js ط§ظ„ظ…ط¨ظ†ظٹط© (ظ†ط´ط± ط®ط¯ظ…ط© ظˆط§ط­ط¯ط©)."""
     if path.startswith("api/"):
-        return JSONResponse({"detail": "المسار غير موجود"}, status_code=404)
+        return JSONResponse({"detail": "ط§ظ„ظ…ط³ط§ط± ط؛ظٹط± ظ…ظˆط¬ظˆط¯"}, status_code=404)
     if not DIST_DIR.is_dir():
-        return JSONResponse({"detail": "واجهة الويب غير مبنية بعد"}, status_code=404)
+        return JSONResponse({"detail": "ظˆط§ط¬ظ‡ط© ط§ظ„ظˆظٹط¨ ط؛ظٹط± ظ…ط¨ظ†ظٹط© ط¨ط¹ط¯"}, status_code=404)
     dist_root = DIST_DIR.resolve()
     target = (DIST_DIR / path).resolve()
     try:

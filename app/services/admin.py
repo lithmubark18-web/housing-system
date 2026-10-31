@@ -23,12 +23,38 @@ from app.services.common import (
     now_iso,
 )
 from app.services.housing import (
-    by_id,
+    bed_by_id,
     building_by_id,
+    by_id,
     contractor_by_id,
     contractor_payload,
+    normalize_housing_type,
     residents_for_contractor,
+    room_by_id,
 )
+
+
+def resident_rows_all(data: dict[str, Any], contractor_id: Any) -> list[dict[str, Any]]:
+    """كل أسماء عمالة المتعهد: الساكنون + المسجّلون (بدون تكرار بالاسم/البطاقة)."""
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for r in residents_for_contractor(data, contractor_id):
+        key = (clean_str(r.get("name")), clean_str(r.get("cardNumber")))
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(r)
+    for w in data.get("contractorWorkers", []):
+        if str(w.get("contractorId")) != str(contractor_id):
+            continue
+        key = (clean_str(w.get("fullName")), clean_str(w.get("cardNumber")))
+        if key in seen:
+            continue
+        seen.add(key)
+        row = dict(w)
+        row["name"] = row.get("fullName")
+        rows.append(row)
+    return rows
 
 
 def role_name_for_id(data: dict[str, Any], role_id: str) -> str:
@@ -72,6 +98,12 @@ def create_user(data: dict[str, Any], payload: dict[str, Any], actor: dict[str, 
         raise ServiceError("كلمة المرور يجب أن تكون 6 أحرف على الأقل")
     if not by_id(data.get("roles", []), role_id):
         raise ServiceError("الدور المحدد غير موجود", 404)
+    housing_type = None
+    if role_id == "r_housing":
+        housing_type = normalize_housing_type(payload.get("housingType"))
+        if housing_type not in {"internal", "external"}:
+            raise ServiceError("يرجى تحديد نوع السكن لمراقب السكن")
+
     contractor_id = payload.get("contractorId") or None
     contractor = contractor_by_id(data, contractor_id) if contractor_id else None
     if role_id == "r_contractor" and not contractor:
@@ -83,6 +115,7 @@ def create_user(data: dict[str, Any], payload: dict[str, Any], actor: dict[str, 
         "passwordHash": hash_password(password),
         "role": role_name_for_id(data, role_id),
         "roleId": role_id,
+        "housingType": housing_type,
         "phone": clean_str(payload.get("phone")),
         "contractorId": contractor.get("id") if contractor else None,
         "contractorName": clean_str((contractor or {}).get("name")),
@@ -119,6 +152,18 @@ def update_user(data: dict[str, Any], user: dict[str, Any], payload: dict[str, A
             raise ServiceError("الدور المحدد غير موجود", 404)
         user["roleId"] = role_id
         user["role"] = role_name_for_id(data, role_id)
+    effective_role_id = str(user.get("roleId") or "")
+    if effective_role_id == "r_housing":
+        if "housingType" in payload or "roleId" in payload:
+            housing_type = normalize_housing_type(
+                payload.get("housingType", user.get("housingType"))
+            )
+            if housing_type not in {"internal", "external"}:
+                raise ServiceError("يرجى تحديد نوع السكن لمراقب السكن")
+            user["housingType"] = housing_type
+    else:
+        user["housingType"] = None
+
     if "contractorId" in payload:
         contractor_id = payload.get("contractorId") or None
         contractor = contractor_by_id(data, contractor_id) if contractor_id else None
@@ -374,17 +419,68 @@ def contractor_portal(data: dict[str, Any], contractor_id: Any) -> dict[str, Any
     if not contractor:
         raise ServiceError("لا يوجد متعهد مرتبط بالحساب", 404)
     workers = residents_for_contractor(data, contractor_id)
+
     requests = [
         r for r in data.get("contractorRequests", [])
         if str(r.get("contractorId")) == str(contractor_id)
     ]
     requests.sort(key=lambda r: str(r.get("createdAt") or ""), reverse=True)
+
+    # مفاتيح العمال الذين لديهم طلب استبعاد قيد المعالجة (غير منجز أو مرفوض).
+    removal_pending_keys: set[str] = set()
+    for r in requests:
+        if r.get("requestType") == "remove_worker" and r.get("stage") not in {"rejected", "done"}:
+            if r.get("targetResidentId"):
+                removal_pending_keys.add(f"rid:{r.get('targetResidentId')}")
+            if r.get("workerName"):
+                removal_pending_keys.add(f"name:{clean_str(r.get('workerName'))}")
+            if r.get("workerCardNumber"):
+                removal_pending_keys.add(f"card:{clean_str(r.get('workerCardNumber'))}")
+
+    def is_removal_pending(worker: dict[str, Any]) -> bool:
+        return (
+            f"rid:{worker.get('id')}" in removal_pending_keys
+            or f"name:{clean_str(worker.get('name'))}" in removal_pending_keys
+            or f"card:{clean_str(worker.get('cardNumber'))}" in removal_pending_keys
+        )
+
+    from app.services.housing import building_by_id, bed_by_id, room_by_id
+
+    worker_rows: list[dict[str, Any]] = []
+    for worker in workers:
+        row = dict(worker)
+        onRemovalCall = is_removal_pending(worker)
+        row["onRemovalCall"] = onRemovalCall
+        bed = bed_by_id(data, worker.get("bedId"))
+        room = room_by_id(data, bed.get("roomId")) if bed else None
+        building = building_by_id(data, room.get("buildingId")) if room else None
+        row["housing"] = {
+            "bedLabel": clean_str((bed or {}).get("label")),
+            "roomName": clean_str((room or {}).get("name")),
+            "buildingName": clean_str((building or {}).get("name")),
+            "buildingId": (room or {}).get("buildingId"),
+            "housingType": normalize_housing_type((building or {}).get("housingType")),
+        }
+        worker_rows.append(row)
+
+    registered_rows: list[dict[str, Any]] = []
+    for w in data.get("contractorWorkers", []):
+        if str(w.get("contractorId")) == str(contractor_id):
+            row = dict(w)
+            row["onRemovalCall"] = (
+                f"card:{clean_str(row.get('cardNumber'))}" in removal_pending_keys
+                or f"name:{clean_str(row.get('fullName'))}" in removal_pending_keys
+            )
+            registered_rows.append(row)
+
+    names = sorted({
+        clean_str(r.get("name")) for r in resident_rows_all(data, contractor_id) if clean_str(r.get("name"))
+    })
+
     return {
         "contractor": contractor_payload(data, contractor),
-        "workers": workers,
-        "registeredWorkers": [
-            w for w in data.get("contractorWorkers", [])
-            if str(w.get("contractorId")) == str(contractor_id)
-        ],
+        "workers": worker_rows,
+        "registeredWorkers": registered_rows,
+        "allWorkerNames": names,
         "requests": requests,
     }

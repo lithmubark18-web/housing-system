@@ -37,6 +37,7 @@ LIST_KEYS = (
     "rotations",
     "notifications",
     "auditLog",
+    "guests",
 )
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -49,6 +50,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "notifyOnLowVacancy": True,
     "requireEmployeeCode": True,
     "minWorkerAge": 18,
+    "maxWorkerAge": 60,
     "features": {
         "bedRotations": True,
         "auditLog": True,
@@ -158,6 +160,11 @@ def _ensure_roles(data: dict[str, Any]) -> bool:
             if permission not in perms:
                 perms.append(permission)
                 changed = True
+        # تقليم أي صلاحية خارج القائمة الافتراضية للأدوار النظامية.
+        stale = [p for p in perms if p not in target]
+        for permission in stale:
+            perms.remove(permission)
+            changed = True
         if existing.get("isSystem") is not True:
             existing["isSystem"] = True
             changed = True
@@ -312,6 +319,23 @@ def normalize_state(data: dict[str, Any]) -> bool:
     changed = _migrate_passwords(data) or changed
     changed = _normalize_users(data) or changed
     changed = _ensure_contractors_departments(data) or changed
+    changed = _ensure_buildings_housing_type(data) or changed
+    return changed
+
+
+HOUSING_TYPES: tuple[str, ...] = ("internal", "external")
+
+
+def _ensure_buildings_housing_type(data: dict[str, Any]) -> bool:
+    """ضبط نوع السكن لكل مبنى (داخلي افتراضياً) مع backfill للبيانات القديمة."""
+    changed = False
+    for building in data.get("buildings", []):
+        if not isinstance(building, dict):
+            continue
+        raw = str(building.get("housingType") or "").strip().lower()
+        if raw not in HOUSING_TYPES:
+            building["housingType"] = HOUSING_TYPES[0]
+            changed = True
     return changed
 
 
