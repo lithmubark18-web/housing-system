@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">نظام السكن</string>
+    <string name="title_activity_main">نظام السكن</string>
+    <string name="package_name">com.ycs.housing</string>
+    <string name="custom_url_scheme">com.ycs.housing</string>
+</resources>
