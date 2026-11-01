@@ -55,6 +55,10 @@ def list_contractors(
 ):
     data = scoped_data(store.read(), user)
     rows = [contractor_payload(data, c) for c in data.get("contractors", [])]
+    # مدير الإدارة (صلاحية عرض دون إدارة) يرى متعهدَي إدارته فقط.
+    user_dept = clean_str(user.get("department"))
+    if user_dept and "contractors.manage" not in set(effective_permissions(user, data.get("roles", []))):
+        rows = [r for r in rows if clean_str(r.get("department")) == user_dept]
     if status:
         rows = [r for r in rows if clean_str(r.get("status")) == status]
     if q:
@@ -186,13 +190,13 @@ def get_free_beds(
     contractor = contractor_by_id(data, contractor_id)
     if not contractor:
         raise HTTPException(status_code=404, detail="المتعهد غير موجود")
-    if is_housing_monitor(user):
+    if is_housing_monitor(user, data.get("roles")):
         ensure_monitor_contractor_scope(data, user, contractor)
     from app.services.housing import free_beds_for_contractor
 
     beds = []
     for bed in free_beds_for_contractor(data, contractor_id):
-        if is_housing_monitor(user) and not monitor_bed_matches(data, user, bed, contractor):
+        if is_housing_monitor(user, data.get("roles")) and not monitor_bed_matches(data, user, bed, contractor):
             continue
         room = room_by_id(data, bed.get("roomId"))
         building = building_by_id(data, (room or {}).get("buildingId"))

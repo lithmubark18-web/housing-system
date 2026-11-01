@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/requests", tags=["requests"])
 
 
 def _ensure_monitor_request_scope(data: dict[str, Any], user: dict[str, Any], item: dict[str, Any]) -> None:
-    if not is_housing_monitor(user):
+    if not is_housing_monitor(user, data.get("roles")):
         return
 
     expected = canonical_housing_type(user.get("housingType"))

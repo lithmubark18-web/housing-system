@@ -291,7 +291,7 @@ def _validate_contractor_worker(data: dict[str, Any], payload: dict[str, Any]) -
         raise ServiceError("مكان الميلاد مطلوب لعمال المتعهدين")
     age = age_on(payload.get("birthDate"))
     if age is not None and age < 18:
-        raise ServiceError("لا يسمح بإضافة موظف أقل من 18 عاماً")
+        raise ServiceError("لا يسمح بإضافة موظف أقل من 18 عاماً", 409)
     for resident in data.get("residents", []):
         if str(resident.get("id")) == str(payload.get("id")):
             continue

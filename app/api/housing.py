@@ -92,7 +92,7 @@ def _classified_buildings_tree(
 def tree(user: dict[str, Any] = Depends(require_any_permission("housing.view", "guests.manage"))):
     data = scoped_data(store.read(), user)
     items = _classified_buildings_tree(data, user)
-    if is_housing_monitor(user):
+    if is_housing_monitor(user, data.get("roles")):
         items = monitor_guest_tree(data, items)
     return {"buildings": items, "generatedAt": now_iso()}
 

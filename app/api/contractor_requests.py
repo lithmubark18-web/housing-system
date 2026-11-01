@@ -96,8 +96,8 @@ def _require_stage(
     if not permission:
         raise HTTPException(status_code=400, detail="مرحلة الاعتماد غير معروفة")
     permissions = set(effective_permissions(user, data.get("roles", [])))
-    if stage == "housing" and is_housing_monitor(user):
-        required = monitor_permission(user)
+    if stage == "housing" and is_housing_monitor(user, data.get("roles")):
+        required = monitor_permission(user, data.get("roles"))
         if not required or required not in permissions:
             raise HTTPException(status_code=403, detail="لا تملك صلاحية اعتماد هذا النوع من السكن")
         if item:
@@ -123,7 +123,7 @@ def list_requests(
     data = scoped_data(store.read(), user)
     scope = _scope(data, user)
     rows = list(data.get("contractorRequests", []))
-    if is_housing_monitor(user):
+    if is_housing_monitor(user, data.get("roles")):
         rows = [r for r in rows if monitor_request_visible(data, user, r)]
     if scope and scope.get("contractorId"):
         rows = [r for r in rows if str(r.get("contractorId")) == str(scope["contractorId"])]
@@ -149,7 +149,7 @@ def list_requests(
     rows.sort(key=lambda r: clean_str(r.get("createdAt")), reverse=True)
     payload = paged([request_payload(data, r) for r in rows], page, pageSize)
     payload["data"] = payload["items"]
-    if is_housing_monitor(user) or (scope and scope.get("department")):
+    if is_housing_monitor(user, data.get("roles")) or (scope and scope.get("department")):
         payload["counts"] = pending_counts({"contractorRequests": rows})
     else:
         payload["counts"] = pending_counts(data)
@@ -161,7 +161,7 @@ def list_requests(
 def pending(user: dict[str, Any] = Depends(get_current_user)):
     data = scoped_data(store.read(), user)
     scope = _scope(data, user)
-    if is_housing_monitor(user):
+    if is_housing_monitor(user, data.get("roles")):
         own = [r for r in data.get("contractorRequests", []) if monitor_request_visible(data, user, r)]
         return pending_counts({"contractorRequests": own})
     if scope and scope.get("contractorId"):
@@ -187,7 +187,7 @@ def get_request(request_id: str, user: dict[str, Any] = Depends(get_current_user
     data = scoped_data(store.read(), user)
     scope = _scope(data, user)
     item = _find(data, request_id)
-    if is_housing_monitor(user) and not monitor_request_visible(data, user, item):
+    if is_housing_monitor(user, data.get("roles")) and not monitor_request_visible(data, user, item):
         raise HTTPException(status_code=404, detail="الطلب غير موجود ضمن نطاق نوع السكن المخصص لحسابك")
     if scope and scope.get("contractorId") and str(item.get("contractorId")) != str(scope["contractorId"]):
         raise HTTPException(status_code=403, detail="لا تملك صلاحية عرض هذا الطلب")

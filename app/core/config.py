@@ -21,7 +21,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 class Settings(BaseSettings):
     app_name: str = "نظام إدارة السكن"
-    app_version: str = "2.1.0"
+    app_version: str = "2.2.0"
     environment: str = "development"
     secret_key: str = DEFAULT_SECRET_KEY
     access_token_expire_minutes: int = 720

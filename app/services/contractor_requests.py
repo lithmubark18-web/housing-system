@@ -42,6 +42,49 @@ STAGE_PERMISSION = {
 }
 
 
+def _int_setting(name: str, default: int) -> int:
+    try:
+        from app.core.config import settings
+
+        return int(getattr(settings, name, default) or default)
+    except Exception:
+        return default
+
+
+def min_worker_age() -> int:
+    return max(1, _int_setting("minWorkerAge", 18))
+
+
+def max_worker_age() -> int:
+    return _int_setting("maxWorkerAge", 60)
+
+
+def previous_exclusions_for(data: dict[str, Any], card: Any) -> list[dict[str, Any]]:
+    """استبعادات سابقة لنفس رقم البطاقة — تُعرض لمراحل الاعتماد قبل التسكين."""
+    card_normalized = normalize_card(card)
+    if not card_normalized:
+        return []
+    exclusions: list[dict[str, Any]] = []
+    for old in sorted(
+        (r for r in data.get("contractorRequests", []) if r.get("requestType") == "remove_worker"),
+        key=lambda r: clean_str(r.get("createdAt")),
+        reverse=True,
+    ):
+        old_card = normalize_card(old.get("workerCardNumber"))
+        if not old_card or old_card != card_normalized:
+            continue
+        contractor_name = clean_str(old.get("contractorName"))
+        exclusions.append({
+            "at": clean_str(old.get("reviewedAt")) or clean_str(old.get("createdAt")) or "",
+            "contractorId": old.get("contractorId"),
+            "contractorName": contractor_name,
+            "contractor": contractor_name,
+            "reason": clean_str(old.get("reason")) or clean_str(old.get("reviewNotes")),
+            "notes": clean_str(old.get("reviewNotes")),
+        })
+    return exclusions
+
+
 def request_payload(data: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
     item = dict(request)
     contractor = contractor_by_id(data, request.get("contractorId"))
@@ -163,8 +206,10 @@ def create_request(
         if not birth_place:
             raise ServiceError("يرجى إدخال مكان الميلاد")
         age = age_on(birth_date)
-        if age is not None and age < 18:
-            raise ServiceError("لا يسمح بإضافة موظف أقل من 18 عاماً")
+        if age is not None and age < min_worker_age():
+            raise ServiceError(f"لا يسمح بإضافة موظف أقل من {min_worker_age()} عاماً", 409)
+        if max_worker_age() and age is not None and age > max_worker_age():
+            raise ServiceError(f"لا يسمح بإضافة موظف أكبر من {max_worker_age()} عاماً", 409)
         for resident in data.get("residents", []):
             if normalize_card(resident.get("cardNumber")) == card:
                 raise ServiceError("يوجد مقيم مسجّل بنفس رقم البطاقة مسبقاً", 409)
@@ -216,6 +261,8 @@ def create_request(
         "bedId": None,
         # يُثبّت على سجل المقيم المستهدف عند إنشاء طلب الاستبعاد.
         "targetResidentId": target_resident_id,
+        # استبعادات سابقة لنفس العامل تظهر لمراحل الاعتماد (طلب إضافة فقط).
+        "previousExclusions": previous_exclusions_for(data, card) if request_type == "new_worker" else [],
         "reason": reason,
         "stage": stage,
         "createdAt": now_iso(),
@@ -432,8 +479,8 @@ def approve_request(
         if not code:
             raise ServiceError("يرجى إدخال كود الموظف قبل الاعتماد")
         age = age_on(request.get("workerBirthDate"))
-        if age is not None and age < 18:
-            raise ServiceError("لا يسمح بإضافة موظف أقل من 18 عاماً", 409)
+        if age is not None and age < min_worker_age():
+            raise ServiceError(f"لا يسمح بإضافة موظف أقل من {min_worker_age()} عاماً", 409)
         request["employeeCode"] = code
 
     if stage == "housing" and is_add:

@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
@@ -16,6 +16,7 @@ from app.api import (
     bootstrap,
     contractor_requests,
     contractors,
+    guests,
     housing,
     notifications,
     operations,
@@ -30,7 +31,7 @@ from app.services.common import ServiceError, now_iso
 
 logger = logging.getLogger("uvicorn.error")
 
-DIST_DIR = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+DIST_DIR = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -49,15 +50,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 async def lifespan(_: FastAPI):
     errors = settings.runtime_errors()
     if errors:
-        raise RuntimeError("ط¥ط¹ط¯ط§ط¯ط§طھ ط£ظ…ط§ظ† ط؛ظٹط± طµط§ظ„ط­ط©: " + " ; ".join(errors))
+        raise RuntimeError("إعدادات أمان غير صالحة: " + " ; ".join(errors))
     store.initialize()
     for warning in settings.runtime_warnings():
         logger.warning("SECURITY: %s", warning)
     data = store.read()
     if not data.get("users"):
-        logger.error("ظ„ط§ ظٹظˆط¬ط¯ ظ…ط³طھط®ط¯ظ…ظˆظ† ظپظٹ ظ‚ط§ط¹ط¯ط© ط§ظ„ط¨ظٹط§ظ†ط§طھ â€” طھط¹ط°ظ‘ط± طھط­ظ…ظٹظ„ ط§ظ„ط¨ط°ط±ط©")
+        logger.error("لا يوجد مستخدمون في قاعدة البيانات — تعذّر تحميل البذرة")
     else:
-        logger.info("ظ†ط¸ط§ظ… ط¥ط¯ط§ط±ط© ط§ظ„ط³ظƒظ† ط¬ط§ظ‡ط² â€” %s ظ…ط³طھط®ط¯ظ…طŒ %s ط³ط§ظƒظ†", len(data.get("users", [])), len(data.get("residents", [])))
+        logger.info("نظام إدارة السكن جاهز — %s مستخدم، %s ساكن", len(data.get("users", [])), len(data.get("residents", [])))
     yield
 
 
@@ -90,8 +91,8 @@ async def service_error_handler(_: Request, exc: ServiceError):
 async def validation_error_handler(_: Request, exc: RequestValidationError):
     first = exc.errors()[0] if exc.errors() else {}
     field = ".".join(str(part) for part in first.get("loc", []) if part not in ("body", "query"))
-    message = first.get("msg", "ط¨ظٹط§ظ†ط§طھ ط؛ظٹط± طµط§ظ„ط­ط©")
-    detail = f"ط­ظ‚ظ„ آ«{field}آ»: {message}" if field else message
+    message = first.get("msg", "بيانات غير صالحة")
+    detail = f"حقل «{field}»: {message}" if field else message
     return JSONResponse(status_code=422, content={"detail": detail, "errors": exc.errors()})
 
 
@@ -103,6 +104,7 @@ for module in (
     housing_requests,
     contractor_requests,
     contractors,
+    guests,
     operations,
     reports,
     notifications,
@@ -133,34 +135,14 @@ def health():
 
 
 @app.get("/", include_in_schema=False)
-def root():
-    index = DIST_DIR / "index.html"
-    if index.is_file():
-        return FileResponse(index)
+def backend_root_status():
     return {
-        "name": settings.app_name,
+        "ok": True,
+        "status": "ok",
+        "service": settings.app_name,
         "version": settings.app_version,
+        "message": "Backend API is running",
         "health": "/health",
-        "docs": None if settings.is_production else "/docs",
+        "api": "/api",
     }
 
-
-@app.get("/{path:path}", include_in_schema=False)
-def static_site(path: str):
-    """ظٹظ‚ط¯ظ‘ظ… ظˆط§ط¬ظ‡ط© Next.js ط§ظ„ظ…ط¨ظ†ظٹط© (ظ†ط´ط± ط®ط¯ظ…ط© ظˆط§ط­ط¯ط©)."""
-    if path.startswith("api/"):
-        return JSONResponse({"detail": "ط§ظ„ظ…ط³ط§ط± ط؛ظٹط± ظ…ظˆط¬ظˆط¯"}, status_code=404)
-    if not DIST_DIR.is_dir():
-        return JSONResponse({"detail": "ظˆط§ط¬ظ‡ط© ط§ظ„ظˆظٹط¨ ط؛ظٹط± ظ…ط¨ظ†ظٹط© ط¨ط¹ط¯"}, status_code=404)
-    dist_root = DIST_DIR.resolve()
-    target = (DIST_DIR / path).resolve()
-    try:
-        target.relative_to(dist_root)
-    except ValueError:
-        return JSONResponse({"detail": "forbidden"}, status_code=403)
-    if path and target.is_file():
-        return FileResponse(target)
-    index = dist_root / "index.html"
-    if index.is_file():
-        return FileResponse(index)
-    return JSONResponse({"detail": "not found"}, status_code=404)

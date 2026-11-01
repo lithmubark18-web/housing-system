@@ -54,7 +54,7 @@ def get_occupancy(user: dict[str, Any] = Depends(require_permission("reports.vie
 
 @router.get("/contractors")
 def get_contractors(user: dict[str, Any] = Depends(require_permission("reports.view"))):
-    if is_housing_monitor(user):
+    if is_housing_monitor(user, data.get("roles")):
         raise HTTPException(status_code=403, detail="تقرير المتعهدين مخصص لمدير النظام")
     data = scoped_data(store.read(), user)
     return contractors_report(data)
@@ -78,6 +78,11 @@ CONTRACTOR_HEADERS = [
 ]
 REQUEST_HEADERS = ["رقم الطلب", "المتعهد", "العامل", "النوع", "المرحلة", "تاريخ الإنشاء", "ملاحظات"]
 DUTY_HEADERS = ["الاسم", "الرقم الوظيفي", "الشركة", "الإدارة", "المبنى", "الغرفة", "الحالة", "أيام العمل", "أيام الراحة"]
+GUEST_HEADERS = [
+    "رقم النموذج", "الاسم", "رقم البطاقة", "تاريخ الميلاد", "محل الميلاد", "الجهة",
+    "الإدارة", "جهة الاعتماد", "غرض الزيارة", "المبنى", "الغرفة", "السرير",
+    "تاريخ البداية", "عدد الأيام", "تاريخ النهاية", "الحالة", "ملاحظات",
+]
 
 
 def _export_rows(data: dict[str, Any], kind: str, on) -> tuple[list[str], list[list[Any]], str]:
@@ -116,6 +121,21 @@ def _export_rows(data: dict[str, Any], kind: str, on) -> tuple[list[str], list[l
             for r in report.get("rows", [])
         ]
         return DUTY_HEADERS, rows, "duty"
+    if kind == "guests":
+        from app.services.guests import guests_report_rows
+
+        guests = guests_report_rows(data)
+        rows = [
+            [
+                r.get("formNo"), r.get("name"), r.get("cardNumber"), r.get("birthDate"), r.get("birthPlace"),
+                r.get("fromPlace"), r.get("department"), r.get("approvalBy"), r.get("visitPurpose"),
+                r.get("housing", {}).get("buildingName"), r.get("housing", {}).get("roomName"),
+                r.get("housing", {}).get("bedLabel"), r.get("startDate"), r.get("days"), r.get("endDate"),
+                r.get("statusLabel"), r.get("notes"),
+            ]
+            for r in guests
+        ]
+        return GUEST_HEADERS, rows, "guests"
     raise HTTPException(status_code=400, detail="نوع التصدير غير معروف")
 
 
@@ -127,7 +147,7 @@ def export_report(
 ):
     data = scoped_data(store.read(), user)
     export_kind = clean_str(kind)
-    if is_housing_monitor(user) and export_kind in {"buildings", "contractors", "requests"}:
+    if is_housing_monitor(user, data.get("roles")) and export_kind in {"buildings", "contractors", "requests"}:
         raise HTTPException(status_code=403, detail="هذا النوع من التصدير مخصص لمدير النظام")
     on = _date_or_today(date)
     headers, rows, name = _export_rows(data, export_kind, on)

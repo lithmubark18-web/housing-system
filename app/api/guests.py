@@ -72,7 +72,7 @@ def add_guest(
     user: dict[str, Any] = Depends(require_any_permission("guests.manage", "housing.manage")),
 ):
     with store.atomic() as data:
-        if is_housing_monitor(user):
+        if is_housing_monitor(user, data.get("roles")):
             ensure_monitor_bed_scope(data, user, payload.bedId)
         guest = create_guest(data, payload.model_dump(), user)
         return guest_payload(data, guest)
@@ -85,7 +85,7 @@ def extend(
     user: dict[str, Any] = Depends(require_any_permission("guests.manage", "housing.manage")),
 ):
     with store.atomic() as data:
-        if is_housing_monitor(user):
+        if is_housing_monitor(user, data.get("roles")):
             current = next((g for g in data.get("guests", []) if str(g.get("id")) == str(guest_id)), None)
             ensure_monitor_guest_scope(data, user, current)
             selected_bed = current.get("bedId") if payload.sameHousing else payload.newBedId
@@ -101,7 +101,7 @@ def end(
     user: dict[str, Any] = Depends(require_any_permission("guests.manage", "housing.manage")),
 ):
     with store.atomic() as data:
-        if is_housing_monitor(user):
+        if is_housing_monitor(user, data.get("roles")):
             current = next((g for g in data.get("guests", []) if str(g.get("id")) == str(guest_id)), None)
             ensure_monitor_guest_scope(data, user, current)
         guest = end_guest(data, guest_id, payload.model_dump(), user)
@@ -122,7 +122,7 @@ def remove_guest(
     if "guests.manage" not in perms:
         raise HTTPException(status_code=403, detail="لا تملك صلاحية حذف الزوار")
     with store.atomic() as data:
-        if is_housing_monitor(user):
+        if is_housing_monitor(user, data.get("roles")):
             current = next((g for g in data.get("guests", []) if str(g.get("id")) == str(guest_id)), None)
             ensure_monitor_guest_scope(data, user, current)
         delete_guest(data, guest_id, user)

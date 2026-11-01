@@ -4,6 +4,10 @@ from typing import Any
 from fastapi import HTTPException
 
 
+HOUSING_INTERNAL_PERMISSION = "requests.housing_internal"
+HOUSING_EXTERNAL_PERMISSION = "requests.housing_external"
+
+
 def canonical_housing_type(value: Any) -> str | None:
     key = " ".join(str(value or "").strip().casefold().split())
     if key in {"internal", "inside", "داخلي", "داخل", "سكن داخلي"}:
@@ -13,26 +17,58 @@ def canonical_housing_type(value: Any) -> str | None:
     return None
 
 
-def is_housing_monitor(user: dict[str, Any]) -> bool:
+def _role_permission_set(user: dict[str, Any], roles: Any) -> set[str]:
+    """صلاحيات دور المستخدم (+ صلاحياته المباشرة) كما معرّفة في شجرة البيانات."""
+    perms: set[str] = set()
+    role_id = str(user.get("roleId") or "").strip()
+    for role in roles or []:
+        if str(role.get("id")) == role_id:
+            perms |= {str(p) for p in (role.get("permissionIds") or [])}
+            break
+    extra = user.get("permissionIds")
+    if isinstance(extra, list):
+        perms |= {str(p) for p in extra}
+    return perms
+
+
+def _raw_monitor_type(user: dict[str, Any], roles: Any = None) -> str | None:
+    """نوع مراقبة السكن: من حقل housingType أو — عند غيابه — من صلاحيات الدور
+    (صلاحية نوع واحد فقط: داخلي أو خارجي)."""
+    kind = canonical_housing_type(user.get("housingType"))
+    if kind:
+        return kind
+    perms = _role_permission_set(user, roles)
+    has_int = HOUSING_INTERNAL_PERMISSION in perms
+    has_ext = HOUSING_EXTERNAL_PERMISSION in perms
+    if has_int and not has_ext:
+        return "internal"
+    if has_ext and not has_int:
+        return "external"
+    return None
+
+
+def is_housing_monitor(user: dict[str, Any], roles: Any = None) -> bool:
     role_id = str(user.get("roleId") or "").strip()
     if not role_id:
         role = str(user.get("role") or "")
         role_id = "r_housing" if role == "housingSupervisor" else ""
-    return role_id == "r_housing"
+    if role_id == "r_housing":
+        return True
+    return bool(_raw_monitor_type(user, roles))
 
 
-def monitor_housing_type(user: dict[str, Any]) -> str | None:
-    if not is_housing_monitor(user):
+def monitor_housing_type(user: dict[str, Any], roles: Any = None) -> str | None:
+    if not is_housing_monitor(user, roles):
         return None
-    return canonical_housing_type(user.get("housingType"))
+    return _raw_monitor_type(user, roles)
 
 
-def monitor_permission(user: dict[str, Any]) -> str | None:
-    kind = monitor_housing_type(user)
+def monitor_permission(user: dict[str, Any], roles: Any = None) -> str | None:
+    kind = monitor_housing_type(user, roles)
     if kind == "internal":
-        return "requests.housing_internal"
+        return HOUSING_INTERNAL_PERMISSION
     if kind == "external":
-        return "requests.housing_external"
+        return HOUSING_EXTERNAL_PERMISSION
     return None
 
 
@@ -74,9 +110,9 @@ def contractor_building_ids(contractor: dict[str, Any]) -> set[str]:
 
 
 def contractor_matches_monitor(data: dict[str, Any], user: dict[str, Any], contractor: dict[str, Any] | None) -> bool:
-    if not is_housing_monitor(user):
+    if not is_housing_monitor(user, data.get("roles")):
         return True
-    kind = monitor_housing_type(user)
+    kind = monitor_housing_type(user, data.get("roles"))
     if not kind or not contractor:
         return False
     ids = contractor_building_ids(contractor)
@@ -87,14 +123,14 @@ def contractor_matches_monitor(data: dict[str, Any], user: dict[str, Any], contr
 
 
 def ensure_monitor_contractor_scope(data: dict[str, Any], user: dict[str, Any], contractor: dict[str, Any] | None) -> None:
-    if is_housing_monitor(user) and not contractor_matches_monitor(data, user, contractor):
+    if is_housing_monitor(user, data.get("roles")) and not contractor_matches_monitor(data, user, contractor):
         raise HTTPException(status_code=403, detail="المتعهد خارج نطاق نوع السكن المخصص لحسابك")
 
 
 def monitor_bed_matches(data: dict[str, Any], user: dict[str, Any], bed: dict[str, Any], contractor: dict[str, Any] | None = None) -> bool:
-    if not is_housing_monitor(user):
+    if not is_housing_monitor(user, data.get("roles")):
         return True
-    kind = monitor_housing_type(user)
+    kind = monitor_housing_type(user, data.get("roles"))
     building_id = bed_building_id(data, bed.get("id"))
     if not kind or not building_id or building_type(data, building_id) != kind:
         return False
@@ -109,7 +145,7 @@ def ensure_monitor_bed_scope(
     bed_id: Any,
     contractor: dict[str, Any] | None = None,
 ) -> None:
-    if not is_housing_monitor(user):
+    if not is_housing_monitor(user, data.get("roles")):
         return
     bed = next((b for b in data.get("beds", []) if str(b.get("id")) == str(bed_id)), None)
     if not bed or not monitor_bed_matches(data, user, bed, contractor):
@@ -117,7 +153,7 @@ def ensure_monitor_bed_scope(
 
 
 def guest_matches_monitor(data: dict[str, Any], user: dict[str, Any], guest: dict[str, Any] | None) -> bool:
-    if not is_housing_monitor(user):
+    if not is_housing_monitor(user, data.get("roles")):
         return True
     if not guest:
         return False
@@ -127,12 +163,12 @@ def guest_matches_monitor(data: dict[str, Any], user: dict[str, Any], guest: dic
 
 
 def ensure_monitor_guest_scope(data: dict[str, Any], user: dict[str, Any], guest: dict[str, Any] | None) -> None:
-    if is_housing_monitor(user) and not guest_matches_monitor(data, user, guest):
+    if is_housing_monitor(user, data.get("roles")) and not guest_matches_monitor(data, user, guest):
         raise HTTPException(status_code=404, detail="الزائر غير موجود ضمن نطاق نوع السكن المخصص لحسابك")
 
 
 def monitor_request_visible(data: dict[str, Any], user: dict[str, Any], request: dict[str, Any]) -> bool:
-    if not is_housing_monitor(user):
+    if not is_housing_monitor(user, data.get("roles")):
         return True
     contractor = next(
         (c for c in data.get("contractors", []) if str(c.get("id")) == str(request.get("contractorId"))),
@@ -171,9 +207,10 @@ def monitor_guest_tree(data: dict[str, Any], tree: list[dict[str, Any]]) -> list
 
 def scoped_data(data: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
     """نسخة قراءة مقيّدة للمراقب؛ لا تغيّر الحالة الأصلية أو تخزن بيانات مفلترة."""
-    if not is_housing_monitor(user):
+    roles = data.get("roles")
+    if not is_housing_monitor(user, roles):
         return data
-    kind = monitor_housing_type(user)
+    kind = monitor_housing_type(user, roles)
     scoped = dict(data)
     if not kind:
         for key in (
