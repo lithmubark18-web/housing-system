@@ -75,6 +75,15 @@ const EMPTY_ROOM = { name: "", floor: "", notes: "" };
 
 const HOUSING_TYPE_LABELS: Record<string, string> = { internal: "سكن داخلي", external: "سكن خارجي" };
 
+/** هل حقل الموقع يكرر نص نوع السكن (سكن داخلي/خارجي)؟ يُخفى حينئذ من السطر الوصفي. */
+function locationDuplicatesType(location?: string | null, housingType?: string | null): boolean {
+  const text = (location || "").trim();
+  if (!text || !housingType) return false;
+  if (housingType === "internal") return text.includes("داخلي");
+  if (housingType === "external") return text.includes("خارجي");
+  return false;
+}
+
 const HOUSING_TYPE_OPTIONS = [
   { value: "", label: "كل أنواع السكن" },
   { value: "internal", label: "سكن داخلي" },
@@ -574,7 +583,9 @@ export default function HousingPage() {
                         <Badge tone={building.housingType === "external" ? "warn" : "info"}>{HOUSING_TYPE_LABELS[building.housingType]}</Badge>
                       )}
                       <small>
-                        {building.location || "بدون موقع"} · {formatNumber(building.roomCount)} غرفة · {formatNumber(building.bedCount)} سرير
+                        {locationDuplicatesType(building.location, building.housingType)
+                          ? `${formatNumber(building.roomCount)} غرفة · ${formatNumber(building.bedCount)} سرير`
+                          : `${building.location || "بدون موقع"} · ${formatNumber(building.roomCount)} غرفة · ${formatNumber(building.bedCount)} سرير`}
                       </small>
                     </span>
                     <span className="accordion-metrics">
