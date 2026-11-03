@@ -104,9 +104,15 @@ const EMPTY_USER = {
   phone: "",
   contractorId: "",
   department: "",
+  housingType: "",
   isActive: true,
   mustChangePassword: false,
 };
+
+const HOUSING_TYPE_OPTIONS = [
+  { value: "internal", label: "السكن الداخلي" },
+  { value: "external", label: "السكن الخارجي (سكن المقاولين)" },
+];
 
 /* إدارات المتعهدين — مطابقة لـ CONTRACTOR_DEPARTMENTS في الخادم */
 const DEPARTMENT_OPTIONS = [
@@ -299,6 +305,7 @@ export default function AdminPage() {
       phone: account.phone || "",
       contractorId: account.contractorId || "",
       department: account.department || "",
+      housingType: account.housingType || "",
       isActive: account.isActive !== false,
       mustChangePassword: !!account.mustChangePassword,
     });
@@ -313,6 +320,9 @@ export default function AdminPage() {
     if (editingUser && userDraft.password && userDraft.password.length < 6) return setUserFormError("كلمة المرور 6 أحرف على الأقل");
     if (userDraft.roleId === "r_contractor" && !userDraft.contractorId) return setUserFormError("اربط حساب المتعهد بمتعهد");
     if (userDraft.roleId === "r_dept_manager" && !userDraft.department) return setUserFormError("اختر إدارة مدير الإدارة");
+    if (userDraft.roleId === "r_housing" && userDraft.housingType !== "internal" && userDraft.housingType !== "external") {
+      return setUserFormError("حدد نوع السكن لمراقب السكن — داخلي أو خارجي");
+    }
     setBusy(true);
     setUserFormError("");
     try {
@@ -325,6 +335,7 @@ export default function AdminPage() {
         mustChangePassword: userDraft.mustChangePassword,
         contractorId: userDraft.roleId === "r_contractor" ? userDraft.contractorId : null,
         department: userDraft.roleId === "r_dept_manager" ? userDraft.department : "",
+        housingType: userDraft.roleId === "r_housing" ? userDraft.housingType : null,
       };
       if (userDraft.password) payload.password = userDraft.password;
       if (editingUser) await updateUser(editingUser.id, payload);
@@ -595,7 +606,7 @@ export default function AdminPage() {
               <div className="table-scroll">
                 <table className="residents-table">
                   <thead>
-                    <tr><th>المستخدم</th><th>اسم الدخول</th><th>الدور</th><th>الإدارة</th><th>الجوال</th><th>المتعهد</th><th>آخر دخول</th><th>الحالة</th><th>إجراءات</th></tr>
+                    <tr><th>المستخدم</th><th>اسم الدخول</th><th>الدور</th><th>الإدارة</th><th>نوع السكن</th><th>الجوال</th><th>المتعهد</th><th>آخر دخول</th><th>الحالة</th><th>إجراءات</th></tr>
                   </thead>
                   <tbody>
                     {filteredUsers.map((account) => (
@@ -604,6 +615,7 @@ export default function AdminPage() {
                         <td><code className="code-chip">{account.username}</code></td>
                         <td><Badge tone={account.roleId === "r_admin" ? "warn" : "info"}>{account.roleName || roleLabel(account.roleId, account.role)}</Badge></td>
                         <td>{account.roleId === "r_dept_manager" ? (account.department || "—") : "—"}</td>
+                        <td>{account.roleId === "r_housing" ? <Badge tone={account.housingType === "external" ? "warn" : "good"}>{account.housingType === "external" ? "خارجي" : account.housingType === "internal" ? "داخلي" : "غير محدد"}</Badge> : "—"}</td>
                         <td>{account.phone || "—"}</td>
                         <td>{account.contractorName || "—"}</td>
                         <td>{account.lastLoginAt ? timeAgo(account.lastLoginAt) : "لم يدخل"}</td>
@@ -905,6 +917,20 @@ export default function AdminPage() {
           <Field label="الدور" required>
             <Select value={userDraft.roleId} onChange={(event) => setUserDraft({ ...userDraft, roleId: event.target.value })} options={roleOptions} />
           </Field>
+          {userDraft.roleId === "r_housing" && (
+            <Field
+              label="نوع السكن"
+              required
+              hint="داخلي: كل السكنات ما عدا سكن المقاولين · خارجي: سكن المقاولين فقط"
+            >
+              <Select
+                value={userDraft.housingType}
+                onChange={(event) => setUserDraft({ ...userDraft, housingType: event.target.value })}
+                options={HOUSING_TYPE_OPTIONS}
+                placeholder="اختر نوع السكن..."
+              />
+            </Field>
+          )}
           <Field label="الجوال">
             <TextInput value={userDraft.phone} onChange={(event) => setUserDraft({ ...userDraft, phone: event.target.value })} dir="ltr" />
           </Field>
