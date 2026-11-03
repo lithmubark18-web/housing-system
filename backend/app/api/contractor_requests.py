@@ -225,6 +225,7 @@ def approve(
             target_stage,
             user,
             employee_code=payload.employeeCode,
+            housing_code=payload.housingCode,
             notes=payload.notes,
             bed_id=payload.bedId,
         )
@@ -250,6 +251,7 @@ def approve_legacy(
             stage,
             user,
             employee_code=payload.employeeCode,
+            housing_code=payload.housingCode,
             notes=payload.notes,
             bed_id=payload.bedId,
         )

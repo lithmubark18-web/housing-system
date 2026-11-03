@@ -124,6 +124,7 @@ export default function RequestsPage() {
   const [approveTarget, setApproveTarget] = useState<ContractorRequest | null>(null);
   const [rejectTarget, setRejectTarget] = useState<ContractorRequest | null>(null);
   const [employeeCode, setEmployeeCode] = useState("");
+  const [monitorCode, setMonitorCode] = useState("");
   const [selectedBedId, setSelectedBedId] = useState("");
   const [freeBeds, setFreeBeds] = useState<Array<{ id: string; label: string; roomName: string; buildingName: string }>>([]);
   const [bedsLoading, setBedsLoading] = useState(false);
@@ -276,6 +277,7 @@ export default function RequestsPage() {
   function openApprove(request: ContractorRequest) {
     setApproveTarget(request);
     setEmployeeCode(request.employeeCode || "");
+    setMonitorCode("");
     setSelectedBedId(request.bedId || "");
     setFreeBeds([]);
     setReviewNotes("");
@@ -307,7 +309,8 @@ export default function RequestsPage() {
     setActionError("");
     try {
       await approveContractorRequest(target.id, target.stage, {
-        employeeCode: employeeCode.trim() || undefined,
+        employeeCode: target.stage === "visitor" ? employeeCode.trim() || undefined : undefined,
+        housingCode: target.stage === "housing" ? monitorCode.trim() || undefined : undefined,
         notes: reviewNotes.trim(),
         bedId: target.stage === "housing" ? selectedBedId : undefined,
       });
@@ -694,6 +697,16 @@ export default function RequestsPage() {
                 { label: "إدارة المتعهد", value: detail.contractor?.department || "—" },
                 { label: "رقم البطاقة", value: detail.workerCardNumber || "—" },
                 { label: "كود الموظف", value: detail.employeeCode || "—" },
+                { label: "كود مراقب السكن", value: detail.housingCode || "—" },
+                {
+                  label: "حالة الأكواد",
+                  value:
+                    detail.employeeCode && detail.housingCode
+                      ? detail.employeeCode === detail.housingCode
+                        ? "الأكواد مطابقة"
+                        : "الأكواد مختلفة"
+                      : "—",
+                },
                 { label: "المسمى", value: detail.jobTitle || "—" },
                 { label: "تاريخ الميلاد", value: detail.workerBirthDate ? formatDate(detail.workerBirthDate) : "—" },
                 { label: "مكان الميلاد", value: detail.workerBirthPlace || "—" },
@@ -718,6 +731,13 @@ export default function RequestsPage() {
               </Alert>
             )}
             {detail.reviewNotes && <Alert tone={detail.stage === "rejected" ? "danger" : "success"}>ملاحظات المراجعة: {detail.reviewNotes}</Alert>}
+            {detail.stage === "done" && (
+              <div className="row-actions">
+                <button type="button" className="secondary-btn" onClick={() => printOfficialRequestForm(detail)}>
+                  <Printer size={16} /> نموذج رسمي (تم التسكين)
+                </button>
+              </div>
+            )}
 
             <div>
               <h3 className="sub-title">مسار الاعتماد</h3>
@@ -823,6 +843,19 @@ export default function RequestsPage() {
                   />
                 ) : (
                   <Alert tone="warning">لا توجد أسرّة متاحة حالياً لدى هذا المتعهد.</Alert>
+                )}
+              </Field>
+            )}
+            {approveTarget.stage === "housing" && approveTarget.requestType === "new_worker" && (
+              <Field
+                label="كود الموظف (كود مراقب السكن)"
+                hint="يُقارن بكود مراقب الزوار وتُثبَّت نتيجة المطابقة في ملاحظات الاعتماد"
+              >
+                <TextInput value={monitorCode} onChange={(event) => setMonitorCode(event.target.value)} placeholder="مثال: EMP-1024" />
+                {String(approveTarget.employeeCode || "").trim() && monitorCode.trim() && (
+                  <p className="small-text" style={{ marginTop: 6, fontWeight: 700, color: monitorCode.trim() === String(approveTarget.employeeCode || "").trim() ? "#1b7f3b" : "#b3261e" }}>
+                    {monitorCode.trim() === String(approveTarget.employeeCode || "").trim() ? "الأكواد مطابقة" : "الأكواد مختلفة"}
+                  </p>
                 )}
               </Field>
             )}

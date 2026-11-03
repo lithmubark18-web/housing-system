@@ -7,6 +7,7 @@ import {
   Download,
   DoorOpen,
   LogIn,
+  Printer,
   RefreshCw,
   Trash2,
   UserRound,
@@ -36,6 +37,7 @@ import {
 } from "@/lib/api";
 import { downloadCsv, downloadSectionsXls, printReportSections, type ReportSection } from "@/lib/export";
 import { formatDate, formatDateTime, formatNumber } from "@/lib/format";
+import { printGuestOfficialForm } from "@/lib/officialForm";
 import { can } from "@/lib/permissions";
 import { useApp } from "@/lib/store";
 import type { Guest } from "@/lib/types";
@@ -421,6 +423,11 @@ export default function GuestsPage() {
                       </td>
                       {canManage && (
                         <td className="actions">
+                          {guest.housing && (
+                            <button type="button" className="small-btn" onClick={() => printGuestOfficialForm(guest)}>
+                              <Printer size={14} /> نموذج رسمي
+                            </button>
+                          )}
                                           {guest.status !== "ended" && (
                             <>
                               <button type="button" className="small-btn" onClick={() => openExtend(guest)}>

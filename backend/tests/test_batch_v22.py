@@ -286,3 +286,78 @@ def test_dashboard_scoped_for_dept_manager(client: TestClient):
     contractors = body.get("contractors") if isinstance(body.get("contractors"), list) else (body.get("rows") or [])
     if contractors:
         assert all(c.get("department") in (None, "", "الشؤون الإدارية") for c in contractors)
+
+
+# ------------------------------------------- كود مراقب السكن ومطابقة الأكواد
+
+def _drive_to_housing(client: TestClient, admin_headers: dict[str, str], employee_code: str) -> tuple[str, str]:
+    """ينشئ طلب تسكين عامل جديد ويمرّه عبر المراحل حتى مرحلة مراقب السكن."""
+    headers = _login(client, "ctr01")
+    payload = {
+        "requestType": "new_worker",
+        "workerName": "عامل مطابقة الأكواد " + uuid_hex(),
+        "workerCardNumber": uuid_digits(),
+        "workerBirthDate": (today() - timedelta(days=30 * 365)).isoformat(),
+        "workerBirthPlace": "تعز",
+        "reason": "تسكين جديد — اختبار الأكواد",
+    }
+    created = client.post("/api/contractor-requests", json=payload, headers=headers)
+    assert created.status_code == 201, created.text
+    rid = created.json()["id"]
+    empty: dict[str, str] = {}
+    for stage in ("department", "security"):
+        res = client.post(f"/api/contractor-requests/{rid}/approve-{stage}", json=empty, headers=admin_headers)
+        assert res.status_code == 200, res.text
+    visitor = client.post(
+        f"/api/contractor-requests/{rid}/approve-visitor",
+        json={"employeeCode": employee_code},
+        headers=admin_headers,
+    )
+    assert visitor.status_code == 200, visitor.text
+    return rid, str(created.json().get("contractorId") or "")
+
+
+def _contractor_free_bed(client: TestClient, admin_headers: dict[str, str], contractor_id: str) -> dict:
+    listing = client.get(f"/api/contractors/{contractor_id}/free-beds", headers=admin_headers)
+    assert listing.status_code == 200, listing.text
+    beds = listing.json().get("items") or []
+    assert beds, "لا توجد أسرّة متاحة لدى المتعهد في البيانات الأولية"
+    return beds[0]
+
+
+def test_housing_monitor_code_match_note(client: TestClient, admin_headers: dict[str, str]):
+    visitor_code = "EMP-" + uuid_digits()
+    rid, cid = _drive_to_housing(client, admin_headers, visitor_code)
+    bed = _contractor_free_bed(client, admin_headers, cid)
+    res = client.post(
+        f"/api/contractor-requests/{rid}/approve-housing",
+        json={"bedId": bed["id"], "housingCode": visitor_code},
+        headers=admin_headers,
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["stage"] == "done"
+    assert body["housingCode"] == visitor_code
+    assert "الأكواد مطابقة" in body["reviewNotes"]
+    history = body["history"]
+    assert "الأكواد مطابقة" in (history[-1]["notes"] or "")
+
+
+def test_housing_monitor_code_mismatch_note(client: TestClient, admin_headers: dict[str, str]):
+    visitor_code = "VZ-" + uuid_digits()
+    rid, cid = _drive_to_housing(client, admin_headers, visitor_code)
+    bed = _contractor_free_bed(client, admin_headers, cid)
+    housing_code = "HS-" + uuid_digits()
+    res = client.post(
+        f"/api/contractor-requests/{rid}/approve-housing",
+        json={"bedId": bed["id"], "housingCode": housing_code},
+        headers=admin_headers,
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["stage"] == "done"
+    assert body["housingCode"] == housing_code
+    assert "الأكواد مختلفة" in body["reviewNotes"]
+    assert "الأكواد مطابقة" not in body["reviewNotes"].replace("الأكواد مختلفة", "")
+    history = body["history"]
+    assert "الأكواد مختلفة" in (history[-1]["notes"] or "")

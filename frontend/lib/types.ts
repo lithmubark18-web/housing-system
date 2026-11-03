@@ -161,6 +161,7 @@ export type ContractorRequest = {
   requestType: "new_worker" | "remove_worker";
   workerName: string;
   employeeCode?: string;
+  housingCode?: string;
   jobTitle?: string;
   workerCardNumber?: string;
   workerBirthDate?: string | null;

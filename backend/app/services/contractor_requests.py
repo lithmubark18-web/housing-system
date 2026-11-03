@@ -253,6 +253,7 @@ def create_request(
         "requestType": request_type,
         "workerName": worker_name,
         "employeeCode": employee_code,
+        "housingCode": "",
         "jobTitle": job_title,
         "workerCardNumber": clean_str(payload.get("workerCardNumber")),
         "workerBirthDate": birth_date or None,
@@ -464,6 +465,7 @@ def approve_request(
     actor: dict[str, Any],
     *,
     employee_code: str = "",
+    housing_code: str = "",
     notes: str = "",
     bed_id: str = "",
 ) -> dict[str, Any]:
@@ -489,6 +491,18 @@ def approve_request(
         if not bed_id_clean:
             raise ServiceError("يرجى تحديد السرير المتاح قبل الاعتماد")
         _execute_add(data, request, actor, bed_id=bed_id_clean)
+        # كود مراقب السكن: يُقارن بكود مراقب الزوار وتُثبَّت نتيجة المطابقة في الملاحظات.
+        monitor_code = clean_str(housing_code) or clean_str(request.get("housingCode"))
+        if monitor_code:
+            request["housingCode"] = monitor_code
+            visitor_code = clean_str(request.get("employeeCode"))
+            if visitor_code:
+                verdict = "الأكواد مطابقة" if visitor_code == monitor_code else "الأكواد مختلفة"
+                prepared = clean_str(notes)
+                notes = (
+                    f"{prepared} · ملاحظة الأكواد: {verdict} "
+                    f"(كود مراقب الزوار: {visitor_code} — كود مراقب السكن: {monitor_code})"
+                ).strip(" ·")
     elif stage == "visitor" and not is_add:
         _execute_remove(data, request, actor)
 

@@ -133,7 +133,6 @@ export function backendBaseUrl(): string {
   const raw = normalizeBaseUrl(cfg.server_url || "");
   // عنوان الخادم المحفوظ من المستخدم له الأولوية حتى على الصفحات المحلية.
   if (raw) return raw;
-  if (isLocalPageHost()) return `http://${window.location.hostname}:8444`;
   const configured = (process.env.NEXT_PUBLIC_API_URL || "").trim().replace(/\/+$/, "");
   if (configured) {
     if (isLocalHostUrl(configured) && !isLocalPageHost()) {
@@ -141,6 +140,7 @@ export function backendBaseUrl(): string {
     }
     return normalizeBaseUrl(configured);
   }
+  if (isLocalPageHost()) return `http://${window.location.hostname}:8444`;
   // داخل APK يجب ألا يكون الخادم «الجهاز نفسه» — اسقط إلى الخادم الافتراضي.
   if (isNativePlatform()) return DEFAULT_SERVER_URL;
   return window.location.origin;

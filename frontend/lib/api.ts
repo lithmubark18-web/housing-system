@@ -682,7 +682,7 @@ export function createContractorRequest(payload: Record<string, unknown>) {
 export function approveContractorRequest(
   id: string,
   stage: string,
-  payload: { employeeCode?: string; notes?: string; bedId?: string } = {},
+  payload: { employeeCode?: string; housingCode?: string; notes?: string; bedId?: string } = {},
 ) {
   return request<ContractorRequest>(`/api/contractor-requests/${encodeURIComponent(id)}/approve-${encodeURIComponent(stage)}`, {
     method: "POST",
