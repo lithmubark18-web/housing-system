@@ -156,10 +156,10 @@ const ROLE_GUIDES: Array<{ title: string; any: string[]; icon?: "shield" | "door
     ],
   },
   {
-    title: "مدير الإدارة",
+    title: "مدير إدارة المتعهد/المقاول",
     any: ["requests.supervise", "contractors.view"],
     items: [
-      "اعتماد طلبات المتعهدين في مرحلة الإدارة لموظفي إدارته",
+      "اعتماد طلبات المتعهدين في مرحلة الإدارة لموظفي إدارته — قبل مشرف الأمن ومراقب الزوار",
       "عرض المتعهدين وعمالهم داخل نطاق إدارته فقط",
       "لوحة معلومات وطلب/تقارير مخصصة له",
     ],
@@ -178,6 +178,13 @@ const ROLE_GUIDES: Array<{ title: string; any: string[]; icon?: "shield" | "door
 export default function AboutPage() {
   const { data, user, offline } = useApp();
   if (!data) return <Loader label="جارٍ تحميل الدليل..." />;
+
+  // المشهد الإداري الكامل (جداول الأدوار والصلاحيات وحسابات الدخول) لمدير النظام فقط —
+  // بقية الدوران (مدير الإدارة، المراقبون، الأمن، الزوار، المتعهد) يرون الدليل الخاص بدورهم فقط.
+  const isAdminView = can(user, "admin.users") || can(user, "admin.settings");
+  const visibleGuides = isAdminView
+    ? ROLE_GUIDES
+    : ROLE_GUIDES.filter((guide) => canAny(user, guide.any));
 
   const permissions = data.permissions || [];
   const grouped = new Map<string, Array<{ id: string; label: string }>>();
@@ -296,9 +303,12 @@ export default function AboutPage() {
       </section>
 
       <section className="section">
-        <SectionTitle title="دليل دورك" hint="ما يمكنك فعله داخل النظام حسب صلاحياتك الحالية" />
+        <SectionTitle
+          title="دليل دورك"
+          hint={isAdminView ? "ما يمكنك فعله داخل النظام حسب صلاحياتك الحالية" : "التعلّمات الخاصة بدورك داخل النظام"}
+        />
         <div className="guide-grid guide-grid-3">
-          {ROLE_GUIDES.map((guide) => {
+          {visibleGuides.map((guide) => {
             const active = canAny(user, guide.any);
             return (
               <article className={`guide-card account-card ${active ? "role-active" : ""}`} key={guide.title}>
@@ -315,9 +325,19 @@ export default function AboutPage() {
               </article>
             );
           })}
+          {!isAdminView && visibleGuides.length === 0 && (
+            <article className="guide-card account-card role-active">
+              <span className="guide-icon"><LogIn size={18} /></span>
+              <h3>{roleLabel(user?.roleId, user?.roleName)}</h3>
+              <ul className="feature-list">
+                <li key="fallback"><CheckCircle2 size={15} /><span>اطلب من مدير النظام شرح صلاحيات دورك — لم تُصنَّف تصنيفاً تلقائياً في الدليل بعد.</span></li>
+              </ul>
+            </article>
+          )}
         </div>
       </section>
 
+      {isAdminView && (
       <section className="section">
         <SectionTitle title="الأدوار والصلاحيات" hint={`${permissions.length} صلاحية موزعة على ${(data.roles || []).length} دور`} />
         <div className="table-card">
@@ -367,7 +387,9 @@ export default function AboutPage() {
           ))}
         </div>
       </section>
+      )}
 
+      {isAdminView && (
       <section className="section">
         <SectionTitle title="حسابات الدخول التجريبية" hint="تُستخدم للاختبار — غيّر كلمات المرور قبل التشغيل الفعلي" />
         <div className="guide-grid guide-grid-3">
@@ -386,6 +408,7 @@ export default function AboutPage() {
           <span>يُطلب تغيير كلمة المرور عند أول دخول للحسابات التي عيّن لها المدير ذلك. لا تشارك بيانات الدخول.</span>
         </div>
       </section>
+      )}
 
       <div className="dash-grid">
         <section className="form-panel">
@@ -439,10 +462,12 @@ export default function AboutPage() {
         </div>
       </section>
 
+      {isAdminView && (
       <div className="dash-note">
         <strong>ملاحظة:</strong> يُحفظ الإنتاج في مستند JSONB واحد داخل جدول <code className="code-chip">kv_store</code> بالمفتاح{" "}
         <code className="code-chip">housing_state_v1</code> لضمان استمرارية البيانات عند الترقية.
       </div>
+      )}
     </>
   );
 }
