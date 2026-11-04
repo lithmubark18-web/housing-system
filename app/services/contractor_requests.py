@@ -568,21 +568,22 @@ def _matching_add_request(data: dict[str, Any], record: dict[str, Any]) -> dict[
     return candidates[0][1] if candidates else None
 
 
-def code_note_text(visitor: str, housing: str) -> str:
+def code_note_text(visitor: str, housing: str, *, with_prefix: bool = True) -> str:
     """نص ملاحظة الأكواد الموحّد الذي يظهر في الطلب وعلى سجل العامل."""
     visitor = clean_str(visitor)
     housing = clean_str(housing)
     if not (visitor or housing):
         return ""
+    prefix = "ملاحظة الأكواد: " if with_prefix else ""
     if visitor and housing:
         verdict = "الأكواد مطابقة" if visitor == housing else "الأكواد مختلفة"
         return (
-            f"ملاحظة الأكواد: {verdict} "
+            f"{prefix}{verdict} "
             f"(كود مراقب الزوار: {visitor} — كود مراقب السكن: {housing})"
         )
     if visitor:
-        return f"ملاحظة الأكواد: كود مراقب الزوار: {visitor} — كود مراقب السكن: لم يُدخل"
-    return f"ملاحظة الأكواد: كود مراقب السكن: {housing} — كود مراقب الزوار: لم يُدخل"
+        return f"{prefix}كود مراقب الزوار: {visitor} — كود مراقب السكن: لم يُدخل"
+    return f"{prefix}كود مراقب السكن: {housing} — كود مراقب الزوار: لم يُدخل"
 
 
 def set_supervisor_codes(
@@ -607,14 +608,15 @@ def set_supervisor_codes(
     if not (visitor or housing):
         raise ServiceError("يرجى إدخال كود واحد على الأقل")
 
-    note = code_note_text(visitor, housing)
+    note = code_note_text(visitor, housing, with_prefix=False)
+    note_for_request = code_note_text(visitor, housing)
     if request:
         base = clean_str(request.get("reviewNotes"))
         if "ملاحظة الأكواد:" in base:
             base = base.split("ملاحظة الأكواد:")[0].rstrip(" ·")
         request["employeeCode"] = visitor
         request["housingCode"] = housing
-        request["reviewNotes"] = f"{base} · {note}".strip(" ·")
+        request["reviewNotes"] = f"{base} · {note_for_request}".strip(" ·")
         _apply_supervisor_codes(data, request)
     else:
         record["visitorCode"] = visitor

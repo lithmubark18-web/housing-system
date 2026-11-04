@@ -235,14 +235,19 @@ def supervisor_codes(data: dict[str, Any], record: dict[str, Any]) -> dict[str, 
         parts.append(f"كود مراقب الزوار: {visitor or '—'}")
         parts.append(f"كود مراقب السكن: {housing or 'لم يُدخل'}")
     code_note = " · ".join(parts)
-    if request_note and request_note != code_note:
-        # تُعرض ملاحظة الاعتماد الكاملة إن كانت تحتوي تفاصيل إضافية (سبب/ملاحظة المراجع).
-        if "ملاحظة الأكواد" in request_note:
-            code_note = request_note
-        elif code_note:
-            code_note = f"{code_note} · {request_note}"
+    # ملاحظة الاعتماد قد تحوي سبباً/تعليقاً من المراجع قبل ملاحظة الأكواد؛ تُضاف هنا
+    # دون تكرار بادئة «ملاحظة الأكواد» حتى لا تظهر مكررة في الواجهة.
+    if request_note:
+        marker = "ملاحظة الأكواد:"
+        if marker in request_note:
+            head, _, tail = request_note.partition(marker)
+            extra = clean_str(head).strip(" ·")
+            if not code_note:
+                code_note = clean_str(tail).strip(" ·")
         else:
-            code_note = request_note
+            extra = request_note
+        if extra:
+            code_note = f"{code_note} · {extra}" if code_note else extra
 
     return {
         "visitorCode": visitor,
