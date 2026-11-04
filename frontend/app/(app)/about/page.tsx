@@ -187,6 +187,19 @@ export default function AboutPage() {
     ? ROLE_GUIDES
     : ROLE_GUIDES.filter((guide) => canAny(user, guide.any));
 
+  // مسار الاعتماد يظهر لمن له علاقة بالطلبات أو المتعهدين فقط — وبلا أكواد صلاحيات لغير المدير.
+  const canSeeWorkflow =
+    isAdminView ||
+    can(user, "contractor.portal") ||
+    canAny(user, [
+      "requests.supervise",
+      "requests.department",
+      "requests.security",
+      "requests.visitor",
+      "requests.housing_internal",
+      "requests.housing_external",
+    ]);
+
   const permissions = data.permissions || [];
   const grouped = new Map<string, Array<{ id: string; label: string }>>();
   for (const permission of permissions) {
@@ -201,11 +214,17 @@ export default function AboutPage() {
       <PageHead
         eyebrow="الدليل"
         title="دليل نظام إدارة سكن الموظفين"
-        subtitle={`الإصدار ${data.meta?.version || "2.0.0"} · ${formatNumber(data.meta?.counts?.residents || 0)} ساكن · ${formatNumber(data.meta?.counts?.buildings || 0)} مبنى`}
+        subtitle={
+          isAdminView
+            ? `الإصدار ${data.meta?.version || "2.0.0"} · ${formatNumber(data.meta?.counts?.residents || 0)} ساكن · ${formatNumber(data.meta?.counts?.buildings || 0)} مبنى`
+            : "دليل دورك ومسار العمل داخل النظام"
+        }
         actions={
           <div className="head-actions">
             <Badge tone={offline ? "warn" : "good"} dot>{offline ? "نسخة محفوظة" : "متصل"}</Badge>
-            <Badge tone="info">{data.meta?.mode === "postgres" ? "PostgreSQL / Supabase" : "تخزين JSON"}</Badge>
+            {isAdminView && (
+              <Badge tone="info">{data.meta?.mode === "postgres" ? "PostgreSQL / Supabase" : "تخزين JSON"}</Badge>
+            )}
           </div>
         }
       />
@@ -219,35 +238,49 @@ export default function AboutPage() {
             واحد، مع تطبيق أندرويد يعمل دون إنترنت للعرض والمتابعة.
           </p>
           <div className="chip-row">
-            <span className="mini-chip">Next.js</span>
-            <span className="mini-chip">FastAPI</span>
-            <span className="mini-chip">PostgreSQL / Supabase</span>
-            <span className="mini-chip">Capacitor Android</span>
-            <span className="mini-chip">عربي RTL</span>
+            {isAdminView ? (
+              <>
+                <span className="mini-chip">Next.js</span>
+                <span className="mini-chip">FastAPI</span>
+                <span className="mini-chip">PostgreSQL / Supabase</span>
+                <span className="mini-chip">Capacitor Android</span>
+                <span className="mini-chip">عربي RTL</span>
+              </>
+            ) : (
+              <>
+                <span className="mini-chip">{roleLabel(user?.roleId, user?.roleName)}</span>
+                <span className="mini-chip">دليل مخصص لدورك</span>
+              </>
+            )}
           </div>
         </div>
       </section>
 
-      <div className="stats-grid stats-grid-4">
-        <StatCard icon={UsersRound} label="السكان" value={formatNumber(data.meta?.counts?.residents || 0)} hint={`${formatNumber(data.meta?.counts?.housingResidents || 0)} في السكن`} />
-        <StatCard icon={BedDouble} label="الأسرّة" value={formatNumber(data.meta?.counts?.beds || 0)} hint={`${formatNumber(data.meta?.counts?.rooms || 0)} غرفة`} tone="info" />
-        <StatCard icon={Handshake} label="المتعهدون" value={formatNumber(data.meta?.counts?.contractors || 0)} tone="success" />
-        <StatCard icon={ShieldCheck} label="المستخدمون" value={formatNumber(data.meta?.counts?.users || 0)} hint={`${formatNumber((data.roles || []).length)} دور`} tone="warn" />
-      </div>
-
-      <section className="section">
-        <SectionTitle title="البدء السريع" hint="ست خطوات لتشغيل النظام" />
-        <div className="guide-grid">
-          {QUICK_START.map((step) => (
-            <article className="guide-card" key={step.title}>
-              <span className="guide-icon"><step.icon size={20} /></span>
-              <h3>{step.title}</h3>
-              <p>{step.text}</p>
-            </article>
-          ))}
+      {isAdminView && (
+        <div className="stats-grid stats-grid-4">
+          <StatCard icon={UsersRound} label="السكان" value={formatNumber(data.meta?.counts?.residents || 0)} hint={`${formatNumber(data.meta?.counts?.housingResidents || 0)} في السكن`} />
+          <StatCard icon={BedDouble} label="الأسرّة" value={formatNumber(data.meta?.counts?.beds || 0)} hint={`${formatNumber(data.meta?.counts?.rooms || 0)} غرفة`} tone="info" />
+          <StatCard icon={Handshake} label="المتعهدون" value={formatNumber(data.meta?.counts?.contractors || 0)} tone="success" />
+          <StatCard icon={ShieldCheck} label="المستخدمون" value={formatNumber(data.meta?.counts?.users || 0)} hint={`${formatNumber((data.roles || []).length)} دور`} tone="warn" />
         </div>
-      </section>
+      )}
 
+      {isAdminView && (
+        <section className="section">
+          <SectionTitle title="البدء السريع" hint="ست خطوات لتشغيل النظام" />
+          <div className="guide-grid">
+            {QUICK_START.map((step) => (
+              <article className="guide-card" key={step.title}>
+                <span className="guide-icon"><step.icon size={20} /></span>
+                <h3>{step.title}</h3>
+                <p>{step.text}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {canSeeWorkflow && (
       <section className="section">
         <SectionTitle title="مسار اعتماد طلبات المتعهدين" hint="يختلف المسار حسب نوع الطلب" />
         <div className="workflow-compare">
@@ -263,7 +296,7 @@ export default function AboutPage() {
                   <div>
                     <strong>{stage.title}</strong>
                     <p>{stage.text}</p>
-                    {stage.permission && <code className="code-chip">{stage.permission}</code>}
+                    {isAdminView && stage.permission && <code className="code-chip">{stage.permission}</code>}
                   </div>
                 </li>
               ))}
@@ -281,7 +314,7 @@ export default function AboutPage() {
                   <div>
                     <strong>{stage.title}</strong>
                     <p>{stage.text}</p>
-                    {stage.permission && <code className="code-chip">{stage.permission}</code>}
+                    {isAdminView && stage.permission && <code className="code-chip">{stage.permission}</code>}
                   </div>
                 </li>
               ))}
@@ -302,6 +335,7 @@ export default function AboutPage() {
           </span>
         </div>
       </section>
+      )}
 
       <section className="section">
         <SectionTitle
@@ -420,7 +454,9 @@ export default function AboutPage() {
             <li><Smartphone size={17} /><span><strong>دخول PIN:</strong> يمكن إعداد رمز PIN سريع على الجهاز بعد أول دخول ناجح.</span></li>
             <li><Smartphone size={17} /><span><strong>تطبيق أندرويد:</strong> يُبنى عبر Capacitor ويستخدم نفس واجهة الويب مع جسر للطباعة والملفات.</span></li>
             <li><Database size={17} /><span><strong>المزامنة التلقائية:</strong> فور عودة الاتصال يُعاد إرسال الإجراءات المحفوظة بالترتيب ثم تحديث البيانات من الخادم — وتظهر شارة المعلّق أعلى الشاشة.</span></li>
-            <li><Layers size={17} /><span><strong>النسخ الاحتياطي:</strong> من إدارة النظام يمكن تنزيل/استعادة نسخة JSON كاملة.</span></li>
+            {isAdminView && (
+              <li><Layers size={17} /><span><strong>النسخ الاحتياطي:</strong> من إدارة النظام يمكن تنزيل/استعادة نسخة JSON كاملة.</span></li>
+            )}
           </ul>
           <div className="alert info">
             <WifiOff size={16} />
@@ -429,7 +465,10 @@ export default function AboutPage() {
         </section>
 
         <section className="form-panel">
-          <SectionTitle title="معلومات الجلسة والنظام" />
+          <SectionTitle
+            title={isAdminView ? "معلومات الجلسة والنظام" : "معلومات جلستك"}
+            hint={isAdminView ? undefined : "بياناتك الشخصية فقط — إحصاءات النظام تظهر لمدير النظام"}
+          />
           <div className="profile-block">
             <div className="avatar avatar-lg">{(user?.name || "؟").slice(0, 1)}</div>
             <div>
@@ -439,14 +478,22 @@ export default function AboutPage() {
             </div>
           </div>
           <InfoGrid
-            items={[
-              { label: "وقت الخادم", value: data.meta?.serverTime ? new Date(data.meta.serverTime).toLocaleString("ar-EG") : "—" },
-              { label: "وضع التخزين", value: data.meta?.mode === "postgres" ? "PostgreSQL / Supabase" : "ملف JSON" },
-              { label: "إصدار المخطط", value: `v${data.schemaVersion}` },
-              { label: "طلبات معلّقة", value: formatNumber(data.meta?.pendingCounts?.total || 0) },
-              { label: "إشعارات غير مقروءة", value: formatNumber((data.notifications || []).filter((item) => !item.read).length) },
-              { label: "صلاحياتك", value: formatNumber((user?.permissions || []).length) },
-            ]}
+            items={
+              isAdminView
+                ? [
+                    { label: "وقت الخادم", value: data.meta?.serverTime ? new Date(data.meta.serverTime).toLocaleString("ar-EG") : "—" },
+                    { label: "وضع التخزين", value: data.meta?.mode === "postgres" ? "PostgreSQL / Supabase" : "ملف JSON" },
+                    { label: "إصدار المخطط", value: `v${data.schemaVersion}` },
+                    { label: "طلبات معلّقة", value: formatNumber(data.meta?.pendingCounts?.total || 0) },
+                    { label: "إشعارات غير مقروءة", value: formatNumber((data.notifications || []).filter((item) => !item.read).length) },
+                    { label: "صلاحياتك", value: formatNumber((user?.permissions || []).length) },
+                  ]
+                : [
+                    { label: "وقت الخادم", value: data.meta?.serverTime ? new Date(data.meta.serverTime).toLocaleString("ar-EG") : "—" },
+                    { label: "إشعارات غير مقروءة", value: formatNumber((data.notifications || []).filter((item) => !item.read).length) },
+                    { label: "صلاحياتك", value: formatNumber((user?.permissions || []).length) },
+                  ]
+            }
           />
           {can(user, "audit.view") && (
             <p className="muted small-text">يمكنك مراجعة سجل العمليات الكامل من صفحة إدارة النظام.</p>

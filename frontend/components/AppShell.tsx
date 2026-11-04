@@ -91,6 +91,26 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return items;
   }, [user]);
 
+  // معلومات البنية التحتية (نوع التخزين/عنوان الخادم) لمدير النظام فقط.
+  const isAdminView = can(user, "admin.users") || can(user, "admin.settings");
+  // البحث الشامل لا يظهر إلا لمن يملك صلاحية عرض أحد أنواع البيانات القابلة للبحث.
+  const canSearch = canAny(user, [
+    "residents.view",
+    "residents.manage",
+    "housing.view",
+    "housing.manage",
+    "contractors.manage",
+    "contractors.view",
+    "reports.view",
+    "requests.supervise",
+    "requests.department",
+    "requests.security",
+    "requests.visitor",
+    "requests.housing_internal",
+    "requests.housing_external",
+    "admin.users",
+  ]);
+
   const pendingRequests = data?.meta?.pendingCounts?.total || 0;
   const serverHost = useMemo(() => {
     try {
@@ -187,13 +207,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <small>{roleLabel(user?.roleId, user?.roleName)}</small>
             </div>
           </div>
-          <div className={`mode-chip ${offline ? "offline" : ""}`} title={`الخادم: ${serverHost}`}>
+          <div className={`mode-chip ${offline ? "offline" : ""}`} title={isAdminView ? `الخادم: ${serverHost}` : undefined}>
             <span className="live-dot" />
             {offline
               ? serverReachable
                 ? "الخادم متاح · أعد الدخول للمزامنة"
                 : "وضع دون إنترنت"
-              : `متصل · ${data?.meta?.mode === "postgres" ? "PostgreSQL" : "محلي"} · ${serverHost}`}
+              : isAdminView
+                ? `متصل · ${data?.meta?.mode === "postgres" ? "PostgreSQL" : "محلي"} · ${serverHost}`
+                : "متصل بالخادم"}
             {pending > 0 ? ` · ${pending} معلّق` : ""}
           </div>
           <button type="button" className="logout-link" onClick={logout}>
@@ -208,6 +230,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <Menu size={20} />
           </button>
 
+          {canSearch && (
           <div className="topbar-search" ref={searchRef}>
             <Search size={17} />
             <input
@@ -234,6 +257,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             )}
           </div>
+          )}
 
           <div className="topbar-actions">
             {pending > 0 && (
