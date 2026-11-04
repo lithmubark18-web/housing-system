@@ -289,6 +289,40 @@ def _ensure_contractors_departments(data: dict[str, Any]) -> bool:
     return changed
 
 
+# تصحيحات بيانات تُطبّق مرة واحدة فقط (يُسجَّل كل تصحيح في appliedMigrations)
+# حتى لا تُلغي أي إعادة توزيع يدوية لاحقة يقوم بها مدير النظام.
+DATA_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    # (المعرّف, اسم المتعهد, الإدارة الصحيحة)
+    ("khalid_hazam_affairs_v1", "متعهد خالد حزام", "إدارة الشؤون"),
+)
+
+
+def _apply_data_migrations(data: dict[str, Any]) -> bool:
+    applied = data.get("appliedMigrations")
+    if not isinstance(applied, list):
+        data["appliedMigrations"] = applied = []
+    changed = False
+    for migration_id, contractor_name, department in DATA_MIGRATIONS:
+        if migration_id in applied:
+            continue
+        target = next(
+            (
+                contractor for contractor in data.get("contractors", [])
+                if isinstance(contractor, dict)
+                and " ".join(str(contractor.get("name") or "").split()) == contractor_name
+            ),
+            None,
+        )
+        if not target:
+            continue
+        if str(target.get("department") or "").strip() != department:
+            target["department"] = department
+            changed = True
+        applied.append(migration_id)
+        changed = True
+    return changed
+
+
 def normalize_state(data: dict[str, Any]) -> bool:
     changed = False
     if not isinstance(data, dict):
@@ -319,6 +353,7 @@ def normalize_state(data: dict[str, Any]) -> bool:
     changed = _migrate_passwords(data) or changed
     changed = _normalize_users(data) or changed
     changed = _ensure_contractors_departments(data) or changed
+    changed = _apply_data_migrations(data) or changed
     changed = _ensure_buildings_housing_type(data) or changed
     return changed
 

@@ -198,6 +198,8 @@ def add_notification(
     user_ids: Iterable[str] | None = None,
     link: str = "",
     actor: dict[str, Any] | None = None,
+    contractor_id: Any = None,
+    department: str = "",
 ) -> dict[str, Any]:
     item = {
         "id": new_id("NTF-"),
@@ -212,6 +214,11 @@ def add_notification(
         "actorName": clean_str((actor or {}).get("name")) or "النظام",
         "readBy": [],
     }
+    # ربط الإشعار بمتعهد/قسم يسمح لمدير الإدارة برؤية إشعارات قسمه فقط.
+    if contractor_id is not None and str(contractor_id).strip():
+        item["contractorId"] = str(contractor_id)
+    if clean_str(department):
+        item["department"] = " ".join(clean_str(department).casefold().split())
     notes = data.setdefault("notifications", [])
     notes.insert(0, item)
     if len(notes) > 3000:

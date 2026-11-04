@@ -372,17 +372,36 @@ def department_scoped_data(data: dict[str, Any], user: dict[str, Any]) -> dict[s
 
     if isinstance(data.get("notifications"), list):
         user_id = str(user.get("id") or "")
+        contractor_names = [
+            _normalize_text(item.get("name"))
+            for item in contractors
+            if _normalize_text(item.get("name"))
+        ]
         visible: list[dict[str, Any]] = []
         for note in data.get("notifications", []):
             audience = {str(value) for value in (note.get("userIds") or [])}
-            if audience and user_id not in audience:
+            if audience:
+                # الإشعارات الموجّهة لأشخاص تُعرض لصاحبها فقط.
+                if user_id in audience:
+                    visible.append(note)
                 continue
-            actor_id = str(note.get("actorId") or "")
-            if actor_id.startswith("user-"):
-                actor_contractor = actor_id[5:]
-                if actor_contractor and actor_contractor not in contractor_ids:
-                    continue
-            visible.append(note)
+            note_contractor = str(note.get("contractorId") or "").strip()
+            if note_contractor:
+                if note_contractor in contractor_ids:
+                    visible.append(note)
+                continue
+            note_department = _normalize_text(note.get("department"))
+            if note_department:
+                if note_department == department:
+                    visible.append(note)
+                continue
+            # إشعارات قديمة سُجّلت قبل ربطها بالمتعهد: نطابق اسم متعهد من القسم داخل النص.
+            if str(note.get("permission") or "") == DEPARTMENT_PERMISSION:
+                haystack = _normalize_text(note.get("body"))
+                if haystack and any(len(name) >= 4 and name in haystack for name in contractor_names):
+                    visible.append(note)
+                continue
+            # أي إشعار عام غير مرتبط بقسم لا يُعرض لمدير الإدارة.
         scoped["notifications"] = visible
 
     return scoped

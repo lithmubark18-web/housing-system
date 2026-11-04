@@ -150,13 +150,18 @@ def _notify_stage(
                 data, title=title, body=body, kind="request",
                 permission=("requests.housing_external" if kind == "external" else "requests.housing_internal"),
                 link="/requests", actor=actor,
+                contractor_id=contractor_id,
+                department=clean_str((contractor or {}).get("department")),
             )
         return
     permission = STAGE_PERMISSION.get(stage)
     if permission:
+        contractor = contractor_by_id(data, contractor_id) if contractor_id else None
         add_notification(
             data, title=title, body=body, kind="request", permission=permission,
             link="/requests", actor=actor,
+            contractor_id=contractor_id,
+            department=clean_str((contractor or {}).get("department")),
         )
 
 
@@ -297,6 +302,7 @@ def create_request(
         "طلب متعهد جديد" if request_type == "new_worker" else "طلب استبعاد عامل",
         f"{item['contractorName']} — {worker_name}",
         actor,
+        contractor_id=contractor.get("id"),
     )
     _notify_contractor_users(
         data, contractor.get("id"), "تم إرسال طلبك",
