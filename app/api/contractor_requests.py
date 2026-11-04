@@ -9,6 +9,7 @@ from app.core.permissions import effective_permissions
 from app.core.state import store
 from app.core.housing_scope import scoped_data
 from app.core.housing_scope import (
+    department_manager_scope,
     ensure_monitor_bed_scope,
     ensure_monitor_contractor_scope,
     is_housing_monitor,
@@ -34,18 +35,16 @@ ANY_STAGE = ("requests.supervise", "requests.housing_internal", "requests.housin
 
 
 def _user_department(data: dict[str, Any], user: dict[str, Any]) -> str:
-    """إدارة مدير الإدارة (فارغ = يرى كل الإدارات)."""
-    permissions = set(effective_permissions(user, data.get("roles", [])))
-    if "requests.department" not in permissions:
-        return ""
-    return clean_str(user.get("department"))
+    """إدارة مدير الإدارة، أو فراغ إذا لم يكن مقيّداً بقسم."""
+    department = department_manager_scope(user, data.get("roles", []))
+    return department if department is not None else ""
 
 
 def _scope(data: dict[str, Any], user: dict[str, Any]) -> dict[str, Any] | None:
     """يرجع قيد العرض: مدير الإدارة (إدارته فقط) أو حساب متعهد (طلباته فقط) أو None للمشرفين العامين."""
     permissions = set(effective_permissions(user, data.get("roles", [])))
-    department = _user_department(data, user)
-    if department:
+    department = department_manager_scope(user, data.get("roles", []))
+    if department is not None:
         return {"department": department}
     if is_staff(user, data.get("roles", [])):
         return None
@@ -70,12 +69,15 @@ def _filter_department(
 
 
 def _guard_department(data: dict[str, Any], user: dict[str, Any], item: dict[str, Any]) -> None:
-    """مدير الإدارة لا يتلاعب بطلبات خارج إدارته."""
-    scope = _scope(data, user)
-    if scope and scope.get("department"):
-        contractor = contractor_by_id(data, item.get("contractorId"))
-        if clean_str((contractor or {}).get("department")) != scope["department"]:
-            raise HTTPException(status_code=403, detail="الطلب خارج نطاق إدارتك")
+    """مدير الإدارة لا يتلاعب بطلبات خارج إدارته، ولا بلا قسم إطلاقاً."""
+    department = department_manager_scope(user, data.get("roles", []))
+    if department is None:
+        return
+    if not department:
+        raise HTTPException(status_code=403, detail="حسابك غير مرتبط بإدارة؛ لا يمكنك اعتماد أو رفض الطلبات")
+    contractor = contractor_by_id(data, item.get("contractorId"))
+    if clean_str((contractor or {}).get("department")) != department:
+        raise HTTPException(status_code=403, detail="الطلب خارج نطاق إدارتك")
 
 
 def _find(data: dict[str, Any], request_id: str) -> dict[str, Any]:
