@@ -109,6 +109,14 @@ export type Resident = {
   bedLabel?: string;
   age?: number | null;
   dutyLabel?: string;
+  onRemovalCall?: boolean;
+  housing?: {
+    buildingName: string;
+    roomName: string;
+    bedLabel: string;
+    buildingId?: string | null;
+    housingType?: "internal" | "external";
+  } | null;
 };
 
 export type HousingRequest = {

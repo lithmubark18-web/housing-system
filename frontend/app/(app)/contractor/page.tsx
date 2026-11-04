@@ -7,7 +7,9 @@ import {
   CheckCircle2,
   ClipboardList,
   DoorOpen,
+  Download,
   FilePlus2,
+  FileText,
   Home,
   Plus,
   Printer,
@@ -16,7 +18,8 @@ import {
   UsersRound,
 } from "lucide-react";
 import { createContractorRequest, getContractorPortal } from "@/lib/api";
-import { formatDate, formatDateTime, formatNumber, formatPercent, stageLabel, statusTone, timeAgo } from "@/lib/format";
+import { downloadTable, printTableReport } from "@/lib/export";
+import { formatDate, formatDateTime, formatNumber, formatPercent, stageLabel, statusTone, timeAgo, todayISO } from "@/lib/format";
 import { printOfficialRequestForm } from "@/lib/officialForm";
 import { can } from "@/lib/permissions";
 import { useApp } from "@/lib/store";
@@ -64,6 +67,10 @@ export default function ContractorPortalPage() {
   const [detail, setDetail] = useState<ContractorRequest | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [workerQuery, setWorkerQuery] = useState("");
+  const [workerStatus, setWorkerStatus] = useState("");
+  const [registeredQuery, setRegisteredQuery] = useState("");
+  const [registeredStatus, setRegisteredStatus] = useState("");
 
   const canRequest = can(user, "contractor.portal") || can(user, "contractors.manage");
 
@@ -101,6 +108,45 @@ export default function ContractorPortalPage() {
     () => (portal?.requests || []).slice().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
     [portal],
   );
+
+  // العمال المسكّنون المتاحون للاستبعاد — يُستثنى من عليه استدعاء/استبعاد معلّق من القائمة.
+  const removableWorkers = useMemo(() => workers.filter((worker) => !worker.onRemovalCall), [workers]);
+
+  const filteredWorkers = useMemo(() => {
+    const needle = workerQuery.trim().toLowerCase();
+    return workers.filter((worker) => {
+      if (workerStatus && (worker.attendanceStatus || worker.baseStatus || "") !== workerStatus) return false;
+      if (!needle) return true;
+      return [worker.name, worker.cardNumber, worker.jobTitle, worker.employeeCode, worker.location]
+        .some((value) => String(value || "").toLowerCase().includes(needle));
+    });
+  }, [workers, workerQuery, workerStatus]);
+
+  const filteredRegistered = useMemo(() => {
+    const needle = registeredQuery.trim().toLowerCase();
+    return registered.filter((worker) => {
+      if (registeredStatus && (worker.status || "") !== registeredStatus) return false;
+      if (!needle) return true;
+      return [worker.fullName, worker.cardNumber, worker.jobTitle, worker.employeeCode, worker.birthPlace, worker.location]
+        .some((value) => String(value || "").toLowerCase().includes(needle));
+    });
+  }, [registered, registeredQuery, registeredStatus]);
+
+  const workerStatusOptions = useMemo(() => {
+    const values = new Set<string>();
+    workers.forEach((worker) => {
+      const label = worker.attendanceStatus || worker.baseStatus;
+      if (label) values.add(label);
+    });
+    return Array.from(values).map((value) => ({ value, label: value }));
+  }, [workers]);
+
+  const registeredStatusOptions = useMemo(() => {
+    const labels: Record<string, string> = { assigned: "مسكّن", removed: "مستبعد" };
+    const values = new Set<string>();
+    registered.forEach((worker) => { if (worker.status) values.add(worker.status); });
+    return Array.from(values).map((value) => ({ value, label: labels[value] || value }));
+  }, [registered]);
 
   const pending = requests.filter((request) => request.stage !== "done" && request.stage !== "rejected");
   const doneRequests = requests.filter((request) => request.stage === "done");
@@ -140,6 +186,50 @@ export default function ContractorPortalPage() {
       setFormError(err instanceof Error ? err.message : "تعذر إرسال الطلب");
     } finally {
       setSaving(false);
+    }
+  }
+
+  const workerExportHeaders = ["العامل", "المسمى", "رقم البطاقة", "كود الموظف", "اسم السكن", "الغرفة", "السرير", "الحالة"];
+  const registeredExportHeaders = ["الاسم", "المسمى", "رقم البطاقة", "كود الموظف", "تاريخ الميلاد", "مكان الميلاد", "الحالة", "البوابة", "السكن"];
+
+  function exportWorkers(kind: "excel" | "pdf") {
+    if (!portal) return;
+    const rows = filteredWorkers.map((worker) => [
+      worker.name || "",
+      worker.jobTitle || "",
+      worker.cardNumber || "",
+      worker.employeeCode || "",
+      worker.housing?.buildingName || "",
+      worker.housing?.roomName || "",
+      worker.housing?.bedLabel || "",
+      worker.attendanceStatus || worker.baseStatus || "",
+    ]);
+    const meta = [`المتعهد: ${portal.contractor.name}`, `عدد العمال: ${formatNumber(rows.length)}`, `تاريخ التصدير: ${formatDate(todayISO())}`];
+    if (kind === "excel") {
+      downloadTable("العمال المسكون", `contractor-workers-${todayISO()}.xls`, workerExportHeaders, rows, `العمال المسكونون — ${portal.contractor.name}`);
+    } else {
+      printTableReport(`العمال المسكونون — ${portal.contractor.name}`, meta, workerExportHeaders, rows);
+    }
+  }
+
+  function exportRegistered(kind: "excel" | "pdf") {
+    if (!portal) return;
+    const rows = filteredRegistered.map((worker) => [
+      worker.fullName || "",
+      worker.jobTitle || "",
+      worker.cardNumber || "",
+      worker.employeeCode || "",
+      worker.birthDate ? formatDate(worker.birthDate) : "",
+      worker.birthPlace || "",
+      worker.status === "assigned" ? "مسكّن" : worker.status === "removed" ? "مستبعد" : worker.status || "",
+      worker.gateStatus === "approved" ? "معتمد" : worker.gateStatus || "",
+      worker.location || "غير مسكن",
+    ]);
+    const meta = [`المتعهد: ${portal.contractor.name}`, `عدد العمال: ${formatNumber(rows.length)}`, `تاريخ التصدير: ${formatDate(todayISO())}`];
+    if (kind === "excel") {
+      downloadTable("سجل العمال", `contractor-register-${todayISO()}.xls`, registeredExportHeaders, rows, `سجل العمال — ${portal.contractor.name}`);
+    } else {
+      printTableReport(`سجل العمال — ${portal.contractor.name}`, meta, registeredExportHeaders, rows);
     }
   }
 
@@ -211,61 +301,101 @@ export default function ContractorPortalPage() {
       />
 
       {tab === "workers" && (
-        <section className="table-card">
-          {workers.length ? (
-            <div className="table-scroll">
-              <table className="residents-table">
-                <thead>
-                  <tr><th>العامل</th><th>المسمى</th><th>الموقع</th><th>الحالة</th><th>البطاقة</th></tr>
-                </thead>
-                <tbody>
-                  {workers.map((worker) => (
-                    <tr key={worker.id}>
-                      <td><strong>{worker.name}</strong><small className="block-note">{worker.company}</small></td>
-                      <td>{worker.jobTitle || "—"}</td>
-                      <td>{worker.location || "غير مسكن"}</td>
-                      <td><Badge tone={statusTone(worker.attendanceStatus || worker.baseStatus)}>{worker.attendanceStatus || worker.baseStatus || "—"}</Badge></td>
-                      <td>{worker.cardNumber || "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <>
+          <section className="form-panel filters-panel">
+            <div className="filters-row">
+              <TextInput placeholder="بحث بالاسم أو البطاقة أو الموقع..." value={workerQuery} onChange={(event) => setWorkerQuery(event.target.value)} />
+              <Select value={workerStatus} onChange={(event) => setWorkerStatus(event.target.value)} options={workerStatusOptions} placeholder="كل الحالات" />
+              <div className="filters-spacer" />
+              <div className="filters-foot inline">
+                <button type="button" className="secondary-btn" onClick={() => exportWorkers("excel")} disabled={!filteredWorkers.length}>
+                  <Download size={16} /> إكسل
+                </button>
+                <button type="button" className="secondary-btn" onClick={() => exportWorkers("pdf")} disabled={!filteredWorkers.length}>
+                  <FileText size={16} /> PDF
+                </button>
+              </div>
             </div>
-          ) : (
-            <EmptyState title="لا يوجد عمال مسكّنون" hint="قدّم طلب إضافة عامل لبدء التسكين" />
-          )}
-        </section>
+          </section>
+          <section className="table-card">
+            {filteredWorkers.length ? (
+              <div className="table-scroll">
+                <table className="residents-table">
+                  <thead>
+                    <tr><th>العامل</th><th>المسمى</th><th>اسم السكن</th><th>الغرفة</th><th>السرير</th><th>الحالة</th><th>البطاقة</th></tr>
+                  </thead>
+                  <tbody>
+                    {filteredWorkers.map((worker) => (
+                      <tr key={worker.id}>
+                        <td><strong>{worker.name}</strong><small className="block-note">{worker.company}</small></td>
+                        <td>{worker.jobTitle || "—"}</td>
+                        <td>{worker.housing?.buildingName || "غير مسكن"}</td>
+                        <td>{worker.housing?.roomName || "—"}</td>
+                        <td>{worker.housing?.bedLabel || "—"}</td>
+                        <td><Badge tone={statusTone(worker.attendanceStatus || worker.baseStatus)}>{worker.attendanceStatus || worker.baseStatus || "—"}</Badge></td>
+                        <td>{worker.cardNumber || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <EmptyState title={workers.length ? "لا نتائج مطابقة للفلترة" : "لا يوجد عمال مسكّنون"} hint={workers.length ? "غيّر كلمات البحث أو الحالة" : "قدّم طلب إضافة عامل لبدء التسكين"} />
+            )}
+          </section>
+        </>
       )}
 
       {tab === "registered" && (
-        <section className="table-card">
-          {registered.length ? (
-            <div className="table-scroll">
-              <table className="residents-table">
-                <thead>
-                  <tr><th>الاسم</th><th>المسمى</th><th>الحالة</th><th>البوابة</th><th>السرير</th></tr>
-                </thead>
-                <tbody>
-                  {registered.map((worker) => {
-                    const located = workers.find((item) => item.bedId === worker.bedId);
-                    return (
+        <>
+          <section className="form-panel filters-panel">
+            <div className="filters-row">
+              <TextInput placeholder="بحث بالاسم أو البطاقة أو الكود..." value={registeredQuery} onChange={(event) => setRegisteredQuery(event.target.value)} />
+              <Select value={registeredStatus} onChange={(event) => setRegisteredStatus(event.target.value)} options={registeredStatusOptions} placeholder="كل الحالات" />
+              <div className="filters-spacer" />
+              <div className="filters-foot inline">
+                <button type="button" className="secondary-btn" onClick={() => exportRegistered("excel")} disabled={!filteredRegistered.length}>
+                  <Download size={16} /> إكسل
+                </button>
+                <button type="button" className="secondary-btn" onClick={() => exportRegistered("pdf")} disabled={!filteredRegistered.length}>
+                  <FileText size={16} /> PDF
+                </button>
+              </div>
+            </div>
+          </section>
+          <section className="table-card">
+            {filteredRegistered.length ? (
+              <div className="table-scroll">
+                <table className="residents-table">
+                  <thead>
+                    <tr><th>الاسم</th><th>المسمى</th><th>البطاقة</th><th>كود الموظف</th><th>الميلاد</th><th>الحالة</th><th>البوابة</th><th>السكن</th></tr>
+                  </thead>
+                  <tbody>
+                    {filteredRegistered.map((worker) => (
                       <tr key={worker.id}>
                         <td><strong>{worker.fullName}</strong><small className="block-note">{worker.birthPlace || "—"}</small></td>
                         <td>{worker.jobTitle || "—"}</td>
-                        <td><Badge tone={statusTone(worker.status)}>
-{worker.status === "assigned" ? "مسكّن" : worker.status === "removed" ? "مستبعد" : worker.status || "—"}</Badge></td>
+                        <td>{worker.cardNumber || "—"}</td>
+                        <td>{worker.employeeCode || "—"}</td>
+                        <td>{worker.birthDate ? formatDate(worker.birthDate) : "—"}</td>
+                        <td>
+                          <Badge tone={statusTone(worker.status)}>
+                            {worker.status === "assigned" ? "مسكّن" : worker.status === "removed" ? "مستبعد" : worker.status || "—"}
+                          </Badge>
+                          {worker.onRemovalCall && <small className="block-note warn-note">استدعاء قيد الإجراء</small>}
+                        </td>
                         <td><Badge tone={worker.gateStatus === "approved" ? "good" : "muted"}>{worker.gateStatus === "approved" ? "معتمد" : worker.gateStatus || "—"}</Badge></td>
-                        <td>{located?.location || (worker.bedId ? "مسكّن" : "—")}</td>
+                        <td>{worker.location || "غير مسكن"}</td>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <EmptyState title="لا يوجد سجل عمال" hint="يُسجّل العمال تلقائياً عند اعتماد طلبات الإضافة" />
-          )}
-        </section>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <EmptyState title={registered.length ? "لا نتائج مطابقة للفلترة" : "لا يوجد سجل عمال"} hint={registered.length ? "غيّر كلمات البحث أو الحالة" : "يُسجّل العمال تلقائياً عند اعتماد طلبات الإضافة"} />
+            )}
+          </section>
+        </>
       )}
 
       {(tab === "requests" || tab === "done" || tab === "rejected") && (
@@ -346,7 +476,7 @@ export default function ContractorPortalPage() {
                   });
                 }}
                 placeholder="اختر من العمال المسكّنين..."
-                options={workers.map((worker) => ({ value: worker.id, label: worker.name }))}
+                options={removableWorkers.map((worker) => ({ value: worker.id, label: worker.name }))}
               />
             </Field>
           )}

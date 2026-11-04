@@ -290,8 +290,20 @@ def _validate_contractor_worker(data: dict[str, Any], payload: dict[str, Any]) -
     if not clean_str(payload.get("birthPlace")):
         raise ServiceError("مكان الميلاد مطلوب لعمال المتعهدين")
     age = age_on(payload.get("birthDate"))
-    if age is not None and age < 18:
-        raise ServiceError("لا يسمح بإضافة موظف أقل من 18 عاماً", 409)
+    try:
+        settings_map = data.get("settings") or {}
+        min_age = max(1, int(settings_map.get("minWorkerAge") or 18))
+    except Exception:
+        min_age = 18
+    try:
+        max_age_raw = settings_map.get("maxWorkerAge")
+        max_age = int(max_age_raw) if max_age_raw else 60
+    except Exception:
+        max_age = 60
+    if age is not None and age < min_age:
+        raise ServiceError(f"لا يسمح بإضافة موظف أقل من {min_age} عاماً", 409)
+    if max_age and age is not None and age > max_age:
+        raise ServiceError(f"لا يسمح بإضافة موظف أكبر من {max_age} عاماً — الحد المسموح من {min_age} إلى {max_age} عاماً", 409)
     for resident in data.get("residents", []):
         if str(resident.get("id")) == str(payload.get("id")):
             continue

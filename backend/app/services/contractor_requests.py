@@ -42,21 +42,23 @@ STAGE_PERMISSION = {
 }
 
 
-def _int_setting(name: str, default: int) -> int:
+def _int_setting(data: dict[str, Any] | None, name: str, default: int) -> int:
+    """يقرأ إعداداً عددياً من إعدادات البيانات (data.settings) ثم يقبل قيمة افتراضية."""
     try:
-        from app.core.config import settings
-
-        return int(getattr(settings, name, default) or default)
+        value = ((data or {}).get("settings") or {}).get(name)
+        if value is not None:
+            return int(value)
     except Exception:
-        return default
+        pass
+    return default
 
 
-def min_worker_age() -> int:
-    return max(1, _int_setting("minWorkerAge", 18))
+def min_worker_age(data: dict[str, Any] | None = None) -> int:
+    return max(1, _int_setting(data, "minWorkerAge", 18))
 
 
-def max_worker_age() -> int:
-    return _int_setting("maxWorkerAge", 60)
+def max_worker_age(data: dict[str, Any] | None = None) -> int:
+    return max(0, _int_setting(data, "maxWorkerAge", 60))
 
 
 def previous_exclusions_for(data: dict[str, Any], card: Any) -> list[dict[str, Any]]:
@@ -206,10 +208,11 @@ def create_request(
         if not birth_place:
             raise ServiceError("يرجى إدخال مكان الميلاد")
         age = age_on(birth_date)
-        if age is not None and age < min_worker_age():
-            raise ServiceError(f"لا يسمح بإضافة موظف أقل من {min_worker_age()} عاماً", 409)
-        if max_worker_age() and age is not None and age > max_worker_age():
-            raise ServiceError(f"لا يسمح بإضافة موظف أكبر من {max_worker_age()} عاماً", 409)
+        if age is not None and age < min_worker_age(data):
+            raise ServiceError(f"لا يسمح بإضافة موظف أقل من {min_worker_age(data)} عاماً", 409)
+        max_age = max_worker_age(data)
+        if max_age and age is not None and age > max_age:
+            raise ServiceError(f"لا يسمح بإضافة موظف أكبر من {max_age} عاماً — بين من {min_worker_age(data)} إلى {max_age} عاماً", 409)
         for resident in data.get("residents", []):
             if normalize_card(resident.get("cardNumber")) == card:
                 raise ServiceError("يوجد مقيم مسجّل بنفس رقم البطاقة مسبقاً", 409)
@@ -481,8 +484,11 @@ def approve_request(
         if not code:
             raise ServiceError("يرجى إدخال كود الموظف قبل الاعتماد")
         age = age_on(request.get("workerBirthDate"))
-        if age is not None and age < min_worker_age():
-            raise ServiceError(f"لا يسمح بإضافة موظف أقل من {min_worker_age()} عاماً", 409)
+        if age is not None and age < min_worker_age(data):
+            raise ServiceError(f"لا يسمح بإضافة موظف أقل من {min_worker_age(data)} عاماً", 409)
+        max_age = max_worker_age(data)
+        if max_age and age is not None and age > max_age:
+            raise ServiceError(f"لا يسمح بإضافة موظف أكبر من {max_age} عاماً", 409)
         request["employeeCode"] = code
 
     if stage == "housing" and is_add:
@@ -521,6 +527,9 @@ def approve_request(
 
     request["reviewedAt"] = now_iso()
     request["reviewNotes"] = clean_str(notes)
+    # عند اكتمال الاعتماد (أو الرفض) يُولَّد رقم النموذج الرسمي لمرة واحدة ويُحتفظ به للأرشفة.
+    if request.get("stage") in {"done", "rejected"} and not clean_str(request.get("formNo")):
+        request["formNo"] = new_id("FR-")
     history = request.setdefault("history", [])
     history.append({
         "at": now_iso(),
@@ -568,6 +577,8 @@ def reject_request(
     request["stage"] = "rejected"
     request["reviewedAt"] = now_iso()
     request["reviewNotes"] = clean_str(notes) or default_note
+    if not clean_str(request.get("formNo")):
+        request["formNo"] = new_id("FR-")
     history = request.setdefault("history", [])
     history.append({
         "at": now_iso(),

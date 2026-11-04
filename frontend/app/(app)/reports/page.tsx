@@ -133,6 +133,12 @@ export default function ReportsPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [contractorQuery, setContractorQuery] = useState("");
+  const [contractorStatus, setContractorStatus] = useState("");
+  const [requestQuery, setRequestQuery] = useState("");
+  const [requestStage, setRequestStage] = useState("");
+  const [dutyQuery, setDutyQuery] = useState("");
+  const [dutyStatus, setDutyStatus] = useState("");
 
   const [remoteAttendance, setRemoteAttendance] = useState<AttendanceReport | null>(null);
   const [remoteOccupancy, setRemoteOccupancy] = useState<OccupancyReport | null>(null);
@@ -401,6 +407,53 @@ export default function ReportsPage() {
     };
   }, [model, occupancy, query, reportType, buildingTypeById]);
 
+  /** فلاتر تبويب المتعهدين — تُطبَّق على الجدول والتصدير معاً */
+  const filteredContractors = useMemo(() => {
+    const needle = contractorQuery.trim().toLowerCase();
+    return (contractors?.rows || []).filter((row) => {
+      if (contractorStatus && (row.status || "") !== contractorStatus) return false;
+      if (!needle) return true;
+      return [row.name, row.buildingNames, row.contactPhone, row.contactEmail, row.type]
+        .some((value) => String(value || "").toLowerCase().includes(needle));
+    });
+  }, [contractors, contractorQuery, contractorStatus]);
+
+  const contractorStatusOptions = useMemo(() => {
+    const values = new Set<string>();
+    (contractors?.rows || []).forEach((row) => { if (row.status) values.add(row.status); });
+    return Array.from(values).map((value) => ({ value, label: value }));
+  }, [contractors]);
+
+  /** فلاتر تبويب الطلبات — بحث باسم المتعهد + مرحلة الطلب */
+  const filteredByContractor = useMemo(() => {
+    const needle = requestQuery.trim().toLowerCase();
+    return (requests?.contractorRequests.byContractor || []).filter((row) => {
+      if (!needle) return true;
+      return String(row.label || "").toLowerCase().includes(needle);
+    });
+  }, [requests, requestQuery]);
+
+  const filteredStages = useMemo(() => {
+    return Object.entries(requests?.contractorRequests.stages || {})
+      .filter(([stage]) => !requestStage || stage === requestStage);
+  }, [requests, requestStage]);
+
+  const stageOptions = useMemo(() => {
+    return Object.keys(requests?.contractorRequests.stages || {})
+      .map((stage) => ({ value: stage, label: STAGE_LABELS[stage] || stage }));
+  }, [requests]);
+
+  /** فلاتر تبويب الدوام — بحث + الحالة */
+  const filteredDutyRows = useMemo(() => {
+    const needle = dutyQuery.trim().toLowerCase();
+    return (duty?.rows || []).filter((row) => {
+      if (dutyStatus && row.status !== dutyStatus) return false;
+      if (!needle) return true;
+      return [row.name, row.employeeCode, row.company, row.department, row.building, row.room]
+        .some((value) => String(value || "").toLowerCase().includes(needle));
+    });
+  }, [duty, dutyQuery, dutyStatus]);
+
   function notify(message: string) {
     setNotice(message);
     setError("");
@@ -450,7 +503,7 @@ export default function ReportsPage() {
         sections: [
           {
             headers: ["المبنى", "الموقع", "الغرف", "الأسرّة", "المشغول", "الشاغر", "نسبة الإشغال %"],
-            rows: occupancy.rows.map((row) => [row.name, row.location || "", row.rooms, row.beds, row.occupied, row.free, row.percent]),
+            rows: filteredReports.occupancyRows.map((row) => [row.name, row.location || "", row.rooms, row.beds, row.occupied, row.free, row.percent]),
           },
         ],
       };
@@ -460,11 +513,11 @@ export default function ReportsPage() {
         title: "تقرير المتعهدين والسعة",
         file: `contractors-${date}`,
         sheet: "المتعهدون",
-        meta: [generated, `المتعهدون: ${contractors.summary.contractors || contractors.rows.length}`],
+        meta: [generated, `المتعهدون: ${filteredContractors.length} من ${contractors.summary.contractors || contractors.rows.length}`],
         sections: [
           {
             headers: ["المتعهد", "النوع", "الحالة", "المباني", "السعة", "المسكنون", "الشاغر", "الأسرّة الفعلية", "الشاغر الفعلي", "نسبة الإشغال %"],
-            rows: contractors.rows.map((row) => [
+            rows: filteredContractors.map((row) => [
               row.name, row.type || "", row.status || "", row.buildingNames || "", row.capacity, row.workerCount, row.freeQuota,
               row.physicalBeds, row.freePhysicalBeds, row.occupancyPercent,
             ]),
@@ -477,12 +530,17 @@ export default function ReportsPage() {
         title: "تقرير الطلبات والاعتمادات",
         file: `requests-${date}`,
         sheet: "الطلبات",
-        meta: [generated],
+        meta: [generated, `المتعهدون المطابقون: ${filteredByContractor.length} من ${requests.contractorRequests.byContractor.length}`],
         sections: [
           {
             heading: "طلبات المتعهدين حسب المتعهد",
             headers: ["المتعهد", "الإجمالي", "معلّق", "مكتمل", "مرفوض"],
-            rows: requests.contractorRequests.byContractor.map((row) => [row.label, row.total, row.pending, row.done, row.rejected]),
+            rows: filteredByContractor.map((row) => [row.label, row.total, row.pending, row.done, row.rejected]),
+          },
+          {
+            heading: "توزيع طلبات المتعهدين حسب المرحلة",
+            headers: ["المرحلة", "العدد"],
+            rows: filteredStages.map(([stage, value]) => [STAGE_LABELS[stage] || stage, value]),
           },
           {
             heading: "طلبات السكن حسب الحالة",
@@ -497,11 +555,11 @@ export default function ReportsPage() {
         title: "تقرير الدوام والورديات",
         file: `duty-${date}`,
         sheet: "الدوام",
-        meta: [generated, `مداوم: ${duty.summary.onDuty} · إجازة: ${duty.summary.onLeave} · بدون جدول: ${duty.summary.withoutSchedule}`],
+        meta: [generated, `مداوم: ${duty.summary.onDuty} · إجازة: ${duty.summary.onLeave} · بدون جدول: ${duty.summary.withoutSchedule} · المطابق: ${filteredDutyRows.length}`],
         sections: [
           {
             headers: ["الاسم", "الرقم الوظيفي", "الشركة", "الإدارة", "المبنى", "الغرفة", "الحالة", "أيام العمل", "أيام الراحة"],
-            rows: duty.rows.map((row) => [row.name, row.employeeCode, row.company, row.department, row.building, row.room, row.status, row.workDays, row.restDays]),
+            rows: filteredDutyRows.map((row) => [row.name, row.employeeCode, row.company, row.department, row.building, row.room, row.status, row.workDays, row.restDays]),
           },
         ],
       };
@@ -552,6 +610,15 @@ export default function ReportsPage() {
       return;
     }
     notify("تم فتح معاينة الطباعة");
+  }
+
+  if (!can(user, "reports.view")) {
+    return (
+      <>
+        <PageHead eyebrow="التقارير والتحليلات" title="مركز التقارير" subtitle="عرض التقارير" />
+        <EmptyState title="لا تملك صلاحية عرض التقارير" hint="اطلب من مدير النظام منحك صلاحية «عرض التقارير»." />
+      </>
+    );
   }
 
   if (!data || !model) return <Loader label="جارٍ تحميل التقارير..." />;
@@ -609,6 +676,41 @@ export default function ReportsPage() {
               </Field>
               <Field label="بحث">
                 <SearchInput value={query} onChange={setQuery} placeholder="ابحث باسم المبنى..." />
+              </Field>
+            </>
+          )}
+          {tab === "contractors" && (
+            <>
+              <Field label="حالة المتعهد">
+                <Select value={contractorStatus} onChange={(event) => setContractorStatus(event.target.value)} options={contractorStatusOptions} placeholder="كل الحالات" />
+              </Field>
+              <Field label="بحث">
+                <SearchInput value={contractorQuery} onChange={setContractorQuery} placeholder="ابحث بالاسم أو المبنى..." />
+              </Field>
+            </>
+          )}
+          {tab === "requests" && (
+            <>
+              <Field label="مرحلة الطلب">
+                <Select value={requestStage} onChange={(event) => setRequestStage(event.target.value)} options={stageOptions} placeholder="كل المراحل" />
+              </Field>
+              <Field label="بحث">
+                <SearchInput value={requestQuery} onChange={setRequestQuery} placeholder="ابحث باسم المتعهد..." />
+              </Field>
+            </>
+          )}
+          {tab === "duty" && (
+            <>
+              <Field label="حالة الدوام">
+                <Select
+                  value={dutyStatus}
+                  onChange={(event) => setDutyStatus(event.target.value)}
+                  options={[{ value: "مداوم", label: "مداوم" }, { value: "إجازة", label: "إجازة" }]}
+                  placeholder="كل الحالات"
+                />
+              </Field>
+              <Field label="بحث">
+                <SearchInput value={dutyQuery} onChange={setDutyQuery} placeholder="ابحث بالاسم أو الشركة..." />
               </Field>
             </>
           )}
@@ -859,21 +961,21 @@ export default function ReportsPage() {
       {tab === "contractors" && contractors && (
         <>
           <div className="stats-grid stats-grid-4">
-            <StatCard icon={Handshake} label="المتعهدون" value={formatNumber(contractors.summary.contractors || contractors.rows.length)} />
-            <StatCard icon={UsersRound} label="العمال المسكّنون" value={formatNumber(contractors.summary.occupied || 0)} hint={`${formatNumber(contractors.summary.capacity || 0)} سعة`} tone="success" />
-            <StatCard icon={BedDouble} label="شاغر تعاقدي" value={formatNumber(contractors.summary.free || 0)} tone="info" />
-            <StatCard icon={BedDouble} label="شاغر فعلي" value={formatNumber(contractors.summary.freePhysicalBeds || 0)} hint={`من ${formatNumber(contractors.summary.physicalBeds || 0)} سرير`} tone="warn" />
+            <StatCard icon={Handshake} label="المتعهدون" value={formatNumber(filteredContractors.length)} hint={`من ${formatNumber(contractors.summary.contractors || contractors.rows.length)}`} />
+            <StatCard icon={UsersRound} label="العمال المسكّنون" value={formatNumber(filteredContractors.reduce((sum, row) => sum + row.workerCount, 0))} hint={`${formatNumber(filteredContractors.reduce((sum, row) => sum + row.capacity, 0))} سعة`} tone="success" />
+            <StatCard icon={BedDouble} label="شاغر تعاقدي" value={formatNumber(filteredContractors.reduce((sum, row) => sum + row.freeQuota, 0))} tone="info" />
+            <StatCard icon={BedDouble} label="شاغر فعلي" value={formatNumber(filteredContractors.reduce((sum, row) => sum + row.freePhysicalBeds, 0))} hint={`من ${formatNumber(filteredContractors.reduce((sum, row) => sum + row.physicalBeds, 0))} سرير`} tone="warn" />
           </div>
 
           <section className="table-card">
-            <SectionTitle title="تحليل سعة المتعهدين" hint="السعة التعاقدية مقابل الأسرّة الفعلية" />
+            <SectionTitle title="تحليل سعة المتعهدين" hint={`${formatNumber(filteredContractors.length)} من ${formatNumber(contractors.rows.length)} متعهد — السعة التعاقدية مقابل الأسرّة الفعلية`} />
             <div className="table-scroll">
               <table className="residents-table">
                 <thead>
                   <tr><th>المتعهد</th><th>المباني</th><th>العمال / السعة</th><th>الشاغر التعاقدي</th><th>الأسرّة الفعلية</th><th>الإشغال</th><th>معلّق</th></tr>
                 </thead>
                 <tbody>
-                  {contractors.rows.map((row) => (
+                  {filteredContractors.map((row) => (
                     <tr key={row.id}>
                       <td><strong>{row.name}</strong><small className="block-note">{row.contactPhone || row.contactEmail || "—"}</small></td>
                       <td>{row.buildingNames || "—"}</td>
@@ -891,13 +993,13 @@ export default function ReportsPage() {
                   ))}
                 </tbody>
               </table>
-              {!contractors.rows.length && <EmptyState title="لا يوجد متعهدون" />}
+              {!filteredContractors.length && <EmptyState title={contractors.rows.length ? "لا نتائج مطابقة للفلترة" : "لا يوجد متعهدون"} hint={contractors.rows.length ? "عدّل الحالة أو كلمة البحث" : undefined} />}
             </div>
           </section>
 
           <section className="chart-card">
-            <SectionTitle title="نسبة إشغال السعة" />
-            <BarList data={contractors.rows.map((row) => ({ label: row.name, value: row.occupancyPercent }))} valueSuffix="%" max={100} />
+            <SectionTitle title="نسبة إشغال السعة" hint={`${formatNumber(filteredContractors.length)} متعهد`} />
+            <BarList data={filteredContractors.map((row) => ({ label: row.name, value: row.occupancyPercent }))} valueSuffix="%" max={100} />
           </section>
         </>
       )}
@@ -906,17 +1008,17 @@ export default function ReportsPage() {
       {tab === "requests" && requests && (
         <>
           <div className="stats-grid stats-grid-4">
-            <StatCard icon={ShieldCheck} label="طلبات المتعهدين" value={formatNumber(requests.contractorRequests.total)} hint={`${formatNumber(requests.contractorRequests.pending)} معلّق`} />
-            <StatCard icon={CalendarCheck} label="مكتملة" value={formatNumber(requests.contractorRequests.done)} tone="success" />
-            <StatCard icon={ShieldCheck} label="مرفوضة" value={formatNumber(requests.contractorRequests.rejected)} tone="danger" />
+            <StatCard icon={ShieldCheck} label="طلبات المتعهدين" value={formatNumber(filteredByContractor.reduce((sum, row) => sum + row.total, 0))} hint={`${formatNumber(filteredByContractor.reduce((sum, row) => sum + row.pending, 0))} معلّق · ${formatNumber(filteredByContractor.length)} متعهد`} />
+            <StatCard icon={CalendarCheck} label="مكتملة" value={formatNumber(filteredByContractor.reduce((sum, row) => sum + row.done, 0))} tone="success" />
+            <StatCard icon={ShieldCheck} label="مرفوضة" value={formatNumber(filteredByContractor.reduce((sum, row) => sum + row.rejected, 0))} tone="danger" />
             <StatCard icon={FileText} label="طلبات السكن" value={formatNumber(requests.housingRequests.total)} hint={`${formatNumber(requests.housingRequests.statuses["قيد المراجعة"] || 0)} قيد المراجعة`} tone="info" />
           </div>
 
           <div className="dash-grid">
             <section className="chart-card">
-              <SectionTitle title="طلبات المتعهدين حسب المرحلة" />
+              <SectionTitle title="طلبات المتعهدين حسب المرحلة" hint={requestStage ? `${STAGE_LABELS[requestStage] || requestStage} فقط` : "كل المراحل"} />
               <DonutChart
-                data={Object.entries(requests.contractorRequests.stages).map(([stage, value]) => ({
+                data={filteredStages.map(([stage, value]) => ({
                   label: STAGE_LABELS[stage] || stage,
                   value,
                   color: stage === "done" ? "#0f9d68" : stage === "rejected" ? "#dc3e55" : undefined,
@@ -932,12 +1034,12 @@ export default function ReportsPage() {
           </div>
 
           <section className="table-card">
-            <SectionTitle title="طلبات المتعهدين حسب المتعهد" />
+            <SectionTitle title="طلبات المتعهدين حسب المتعهد" hint={`${formatNumber(filteredByContractor.length)} من ${formatNumber(requests.contractorRequests.byContractor.length)} متعهد`} />
             <div className="table-scroll">
               <table className="compact-table">
                 <thead><tr><th>المتعهد</th><th>الإجمالي</th><th>معلّق</th><th>مكتمل</th><th>مرفوض</th><th>نسبة الإنجاز</th></tr></thead>
                 <tbody>
-                  {requests.contractorRequests.byContractor.map((row) => (
+                  {filteredByContractor.map((row) => (
                     <tr key={row.label}>
                       <td><strong>{row.label}</strong></td>
                       <td>{formatNumber(row.total)}</td>
@@ -954,7 +1056,7 @@ export default function ReportsPage() {
                   ))}
                 </tbody>
               </table>
-              {!requests.contractorRequests.byContractor.length && <EmptyState title="لا توجد طلبات متعهدين" />}
+              {!filteredByContractor.length && <EmptyState title={requests.contractorRequests.byContractor.length ? "لا نتائج مطابقة للفلترة" : "لا توجد طلبات متعهدين"} hint={requests.contractorRequests.byContractor.length ? "عدّل كلمة البحث" : undefined} />}
             </div>
           </section>
 
@@ -983,9 +1085,9 @@ export default function ReportsPage() {
       {tab === "duty" && duty && (
         <>
           <div className="stats-grid stats-grid-4">
-            <StatCard icon={CalendarCheck} label="بجدول دوام" value={formatNumber(duty.summary.withSchedule || 0)} hint={`من ${formatNumber(model.residents.length)} ساكن`} />
-            <StatCard icon={CalendarCheck} label="مداومون" value={formatNumber(duty.summary.onDuty || 0)} tone="success" />
-            <StatCard icon={CalendarCheck} label="في إجازة" value={formatNumber(duty.summary.onLeave || 0)} tone="warn" />
+            <StatCard icon={CalendarCheck} label="بجدول دوام" value={formatNumber(filteredDutyRows.length)} hint={`من ${formatNumber(duty.summary.withSchedule || 0)} · أصل الساكنين ${formatNumber(model.residents.length)}`} />
+            <StatCard icon={CalendarCheck} label="مداومون" value={formatNumber(filteredDutyRows.filter((row) => row.status === "مداوم").length)} tone="success" />
+            <StatCard icon={CalendarCheck} label="في إجازة" value={formatNumber(filteredDutyRows.filter((row) => row.status === "إجازة").length)} tone="warn" />
             <StatCard icon={CalendarCheck} label="بدون جدول" value={formatNumber(duty.summary.withoutSchedule || 0)} tone="muted" />
           </div>
 
@@ -1017,14 +1119,14 @@ export default function ReportsPage() {
           </div>
 
           <section className="table-card">
-            <SectionTitle title="جدول الدوام" hint={`${formatNumber(duty.rows.length)} سجل`} />
+            <SectionTitle title="جدول الدوام" hint={`${formatNumber(filteredDutyRows.length)} من ${formatNumber(duty.rows.length)} سجل`} />
             <div className="table-scroll">
               <table className="residents-table">
                 <thead>
                   <tr><th>الاسم</th><th>الرقم الوظيفي</th><th>الشركة</th><th>المبنى / الغرفة</th><th>الوردية</th><th>الدورة</th><th>الحالة</th></tr>
                 </thead>
                 <tbody>
-                  {duty.rows.map((row) => (
+                  {filteredDutyRows.map((row) => (
                     <tr key={row.id}>
                       <td><strong>{row.name}</strong><small className="block-note">{row.department || "—"}</small></td>
                       <td>{row.employeeCode || "—"}</td>
@@ -1037,7 +1139,7 @@ export default function ReportsPage() {
                   ))}
                 </tbody>
               </table>
-              {!duty.rows.length && <EmptyState title="لا توجد جداول دوام" hint="حدّد دورة الدوام من ملف الساكن" />}
+              {!filteredDutyRows.length && <EmptyState title={duty.rows.length ? "لا نتائج مطابقة للفلترة" : "لا توجد جداول دوام"} hint={duty.rows.length ? "عدّل الحالة أو كلمة البحث" : "حدّد دورة الدوام من ملف الساكن"} />}
             </div>
           </section>
         </>

@@ -80,6 +80,12 @@ export default function GuestsPage() {
   const canManage = can(user, "guests.manage");
 
   useEffect(() => {
+    // بيانات الزوار لا تظهر إلا لمن يملك guests.view (مدير النظام) — مراقب السكن يسجّل فقط.
+    if (!canView) {
+      setRows([]);
+      setLoading(false);
+      return;
+    }
     // يعمل دون إنترنت: listGuests يقرأ تلقائياً النسخة المحلية عند تعذر الخادم.
     let cancelled = false;
     setLoading(true);
@@ -97,7 +103,16 @@ export default function GuestsPage() {
     return () => {
       cancelled = true;
     };
-  }, [status, q, reload, data]);
+  }, [status, q, reload, data, canView]);
+
+  async function refreshRows() {
+    if (!canView) {
+      setRows([]);
+      return;
+    }
+    const res = await listGuests({ status, q, page: 1, pageSize: 500 });
+    setRows(res.items || []);
+  }
 
   useEffect(() => {
     if (!canManage) return;
@@ -183,8 +198,7 @@ export default function GuestsPage() {
     try {
       await deleteGuest(guest.id);
       notify(offline ? "حُذف محلياً — سيتزامن تلقائياً مع الخادم" : "حُذف ملف الزائر");
-      const res = await listGuests({ status, q, page: 1, pageSize: 500 });
-      setRows(res.items || []);
+      await refreshRows();
     } catch (err) {
       fail(err);
     } finally {
@@ -216,8 +230,7 @@ export default function GuestsPage() {
       });
       setDialog(null);
       notify(offline ? "سُجِّل الزائر محلياً — سيتزامن تلقائياً مع الخادم" : "تم تسجيل الزائر وتسكينه");
-      const res = await listGuests({ status, q, page: 1, pageSize: 500 });
-      setRows(res.items || []);
+      await refreshRows();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "تعذر تسجيل الزائر");
     } finally {
@@ -247,8 +260,7 @@ export default function GuestsPage() {
       });
       setDialog(null);
       notify(offline ? "سُجِّل التمديد محلياً — سيتزامن تلقائياً مع الخادم" : "تم تسجيل التمديد");
-      const res = await listGuests({ status, q, page: 1, pageSize: 500 });
-      setRows(res.items || []);
+      await refreshRows();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "تعذر تنفيذ التمديد");
     } finally {
@@ -264,8 +276,7 @@ export default function GuestsPage() {
       await endGuest(dialog.guest.id, { reason: endReason.trim() });
       setDialog(null);
       notify(offline ? "أُنهيت الإقامة محلياً — سيتزامن تلقائياً مع الخادم" : "تم إنهاء إقامة الزائر وإخلاء السرير");
-      const res = await listGuests({ status, q, page: 1, pageSize: 500 });
-      setRows(res.items || []);
+      await refreshRows();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "تعذر إنهاء الإقامة");
     } finally {
@@ -328,11 +339,13 @@ export default function GuestsPage() {
       {notice && <Alert tone="success">{notice}</Alert>}
       {error && <ErrorNote message={error} />}
 
-      <div className="stats-grid">
-        <StatCard icon={UserRound} label="عدد الزوار" value={formatNumber(filtered.length)} />
-        <StatCard icon={DoorOpen} label="إقامات نشطة" value={formatNumber(activeCount)} />
-        <StatCard icon={CalendarClock} label="إجمالي أيام الإقامة" value={formatNumber(stayedCount)} />
-      </div>
+      {canView && (
+        <div className="stats-grid">
+          <StatCard icon={UserRound} label="عدد الزوار" value={formatNumber(filtered.length)} />
+          <StatCard icon={DoorOpen} label="إقامات نشطة" value={formatNumber(activeCount)} />
+          <StatCard icon={CalendarClock} label="إجمالي أيام الإقامة" value={formatNumber(stayedCount)} />
+        </div>
+      )}
 
       {canView ? (
         <>
@@ -602,8 +615,7 @@ export default function GuestsPage() {
   async function refreshList() {
     setLoading(true);
     try {
-      const res = await listGuests({ status, q, page: 1, pageSize: 500 });
-      setRows(res.items || []);
+      await refreshRows();
       setError("");
     } catch (err) {
       fail(err);

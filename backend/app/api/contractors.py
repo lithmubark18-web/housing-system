@@ -39,10 +39,23 @@ router = APIRouter(prefix="/api/contractors", tags=["contractors"])
 def _require_portal_access(data: dict[str, Any], user: dict[str, Any], contractor_id: str) -> None:
     permissions = set(effective_permissions(user, data.get("roles", [])))
     if "contractors.manage" in permissions or "contractors.view" in permissions:
+        _guard_department(data, user, contractor_id)
         return
     if "contractor.portal" in permissions and str(user.get("contractorId")) == str(contractor_id):
         return
     raise HTTPException(status_code=403, detail="لا تملك صلاحية عرض هذا المتعهد")
+
+
+def _guard_department(data: dict[str, Any], user: dict[str, Any], contractor_id: str) -> None:
+    """مدير الإدارة (بلا صلاحية إدارة المتعهدين) محصور بمتعهدَي إدارته — حتى الضغط المفرد."""
+    if "contractors.manage" in set(effective_permissions(user, data.get("roles", []))):
+        return
+    user_dept = clean_str(user.get("department"))
+    if not user_dept:
+        return
+    contractor = contractor_by_id(data, contractor_id)
+    if contractor and clean_str(contractor.get("department")) != user_dept:
+        raise HTTPException(status_code=404, detail="المتعهد غير موجود ضمن نطاق إدارتك")
 
 
 @router.get("")
@@ -82,6 +95,7 @@ def get_contractor(
     contractor = contractor_by_id(data, contractor_id)
     if not contractor:
         raise HTTPException(status_code=404, detail="المتعهد غير موجود")
+    _guard_department(data, user, contractor_id)
     return contractor_payload(data, contractor)
 
 
@@ -94,6 +108,7 @@ def get_stats(
     contractor = contractor_by_id(data, contractor_id)
     if not contractor:
         raise HTTPException(status_code=404, detail="المتعهد غير موجود")
+    _guard_department(data, user, contractor_id)
     return contractor_stats(data, contractor)
 
 
@@ -106,6 +121,7 @@ def get_workers(
     contractor = contractor_by_id(data, contractor_id)
     if not contractor:
         raise HTTPException(status_code=404, detail="المتعهد غير موجود")
+    _guard_department(data, user, contractor_id)
     from app.services.housing import resident_payload
 
     workers = [resident_payload(data, r) for r in residents_for_contractor(data, contractor_id)]

@@ -70,7 +70,6 @@ ROLE_DEFAULT_PERMISSIONS: dict[str, list[str]] = {
         "operations.view",
         "reports.view",
         "reports.export",
-        "guests.view",
         "guests.manage",
         "requests.housing_internal",
         "requests.housing_external",
@@ -190,7 +189,6 @@ def effective_permissions(user: dict[str, Any], roles: Iterable[dict[str, Any]])
             "operations.view",
             "reports.view",
             "reports.export",
-            "guests.view",
             "guests.manage",
         }
         if housing_type == "internal":

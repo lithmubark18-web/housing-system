@@ -59,7 +59,8 @@ def list_guests(
     q: str = "",
     page: int = 1,
     pageSize: int = 50,
-    user: dict[str, Any] = Depends(require_any_permission("guests.view", "guests.manage")),
+    # بيانات وتقارير الزوار لا تظهر إلا لمدير النظام؛ مراقب السكن يملك guests.manage للتسجيل فقط.
+    user: dict[str, Any] = Depends(require_permission("guests.view")),
 ):
     data = scoped_data(store.read(), user)
     rows = guests_report_rows(data, status=clean_str(status), q=q)
