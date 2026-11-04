@@ -70,7 +70,7 @@ def global_search(
         if rows:
             groups["housing"] = rows[:limit]
 
-    if permissions & {"contractors.manage", "housing.view", "reports.view"}:
+    if permissions & {"contractors.manage", "contractors.view", "housing.view", "reports.view"}:
         rows = [
             {
                 "id": c.get("id"),
@@ -84,7 +84,7 @@ def global_search(
         if rows:
             groups["contractors"] = rows[:limit]
 
-    if permissions & {"requests.supervise", "requests.security", "requests.visitor"}:
+    if permissions & {"requests.supervise", "requests.department", "requests.security", "requests.visitor"}:
         rows = [
             {
                 "id": r.get("id"),

@@ -205,11 +205,194 @@ def monitor_guest_tree(data: dict[str, Any], tree: list[dict[str, Any]]) -> list
     return result
 
 
+DEPARTMENT_PERMISSION = "requests.department"
+# أدوار إدارية أوسع من مدير الإدارة لا تُقيَّد بقسم واحد.
+BROAD_DEPARTMENT_PERMISSIONS = {
+    "admin.users",
+    "admin.settings",
+    "contractors.manage",
+    "residents.manage",
+    "housing.manage",
+    "requests.supervise",
+}
+
+
+def _normalize_text(value: Any) -> str:
+    return " ".join(str(value or "").strip().casefold().split())
+
+
+def department_manager_scope(user: dict[str, Any], roles: Any = None) -> str | None:
+    """قسم مدير الإدارة، أو None إذا لم يكن مدير إدارة مقيّداً بقسمه.
+
+    القسم الفارغ يعني مدير إدارة بلا قسم محدد؛ تُعاد هنا سلسلة فارغة حتى
+    تُغلق بياناته بالكامل بدل أن يرى بيانات كل الإدارات.
+    """
+    perms = _role_permission_set(user, roles)
+    role_id = str(user.get("roleId") or "").strip()
+    if role_id == "r_admin" or perms & {"admin.users", "admin.settings"}:
+        return None
+    is_department_manager = role_id == "r_dept_manager" or DEPARTMENT_PERMISSION in perms
+    if not is_department_manager:
+        return None
+    if perms & BROAD_DEPARTMENT_PERMISSIONS:
+        return None
+    return _normalize_text(user.get("department"))
+
+
+def department_scoped_data(data: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
+    """تقييد بيانات مدير الإدارة على متعهدي قسمه وعمالهم وطلباتهم فقط."""
+    department = department_manager_scope(user, data.get("roles"))
+    if department is None:
+        return data
+
+    scoped = dict(data)
+    list_keys = (
+        "buildings", "rooms", "beds", "residents", "contractors", "contractorWorkers",
+        "contractorRequests", "guests", "requests", "rotations", "attendance",
+        "dutyRecords", "dutyLogs", "movements", "notifications", "auditLog",
+    )
+    if not department:
+        for key in list_keys:
+            if isinstance(data.get(key), list):
+                scoped[key] = []
+        if isinstance(data.get("users"), list):
+            scoped["users"] = [
+                item for item in data["users"]
+                if str(item.get("id")) == str(user.get("id"))
+            ]
+        return scoped
+
+    contractors = [
+        item for item in data.get("contractors", [])
+        if _normalize_text(item.get("department")) == department
+    ]
+    contractor_ids = {
+        str(item.get("id")) for item in contractors if item.get("id") is not None
+    }
+
+    residents = [
+        item for item in data.get("residents", [])
+        if (
+            item.get("contractorId") is not None
+            and str(item.get("contractorId")) in contractor_ids
+        )
+        or _normalize_text(item.get("department")) == department
+    ]
+    resident_ids = {
+        str(item.get("id")) for item in residents if item.get("id") is not None
+    }
+    employee_codes = {
+        str(item.get("employeeCode")) for item in residents if item.get("employeeCode")
+    }
+
+    building_ids: set[str] = set()
+    for contractor in contractors:
+        building_ids |= contractor_building_ids(contractor)
+    for resident in residents:
+        building_id = resident_building_id(data, resident)
+        if building_id:
+            building_ids.add(str(building_id))
+
+    buildings = [
+        item for item in data.get("buildings", [])
+        if str(item.get("id")) in building_ids
+    ]
+    rooms = [
+        item for item in data.get("rooms", [])
+        if str(item.get("buildingId")) in building_ids
+    ]
+    room_ids = {str(item.get("id")) for item in rooms if item.get("id") is not None}
+    beds = [
+        item for item in data.get("beds", [])
+        if str(item.get("roomId")) in room_ids
+    ]
+    bed_ids = {str(item.get("id")) for item in beds if item.get("id") is not None}
+
+    contractor_requests = [
+        item for item in data.get("contractorRequests", [])
+        if item.get("contractorId") is not None
+        and str(item.get("contractorId")) in contractor_ids
+    ]
+    contractor_workers = [
+        item for item in data.get("contractorWorkers", [])
+        if (
+            item.get("contractorId") is not None
+            and str(item.get("contractorId")) in contractor_ids
+        )
+        or (
+            item.get("buildingId") is not None
+            and str(item.get("buildingId")) in building_ids
+        )
+    ]
+
+    scoped.update({
+        "buildings": buildings,
+        "rooms": rooms,
+        "beds": beds,
+        "residents": residents,
+        "contractors": contractors,
+        "contractorWorkers": contractor_workers,
+        "contractorRequests": contractor_requests,
+        "guests": [
+            item for item in data.get("guests", [])
+            if item.get("bedId") is not None and str(item.get("bedId")) in bed_ids
+        ],
+        "requests": [
+            item for item in data.get("requests", [])
+            if item.get("residentId") is not None
+            and str(item.get("residentId")) in resident_ids
+        ],
+    })
+
+    if isinstance(data.get("rotations"), list):
+        scoped["rotations"] = [
+            item for item in data.get("rotations", [])
+            if (item.get("buildingId") is not None and str(item.get("buildingId")) in building_ids)
+            or (item.get("roomId") is not None and str(item.get("roomId")) in room_ids)
+            or (item.get("bedId") is not None and str(item.get("bedId")) in bed_ids)
+        ]
+    for key in ("attendance", "dutyRecords", "dutyLogs", "movements"):
+        if isinstance(data.get(key), list):
+            scoped[key] = [
+                row for row in data.get(key, [])
+                if (row.get("residentId") is not None and str(row.get("residentId")) in resident_ids)
+                or (row.get("employeeCode") is not None and str(row.get("employeeCode")) in employee_codes)
+            ]
+
+    if isinstance(data.get("users"), list):
+        scoped["users"] = [
+            item for item in data.get("users", [])
+            if str(item.get("id")) == str(user.get("id"))
+            or _normalize_text(item.get("department")) == department
+        ]
+
+    # سجل التدقيق عام على مستوى النظام؛ لا يُعرض لمدير الإدارة.
+    if isinstance(data.get("auditLog"), list):
+        scoped["auditLog"] = []
+
+    if isinstance(data.get("notifications"), list):
+        user_id = str(user.get("id") or "")
+        visible: list[dict[str, Any]] = []
+        for note in data.get("notifications", []):
+            audience = {str(value) for value in (note.get("userIds") or [])}
+            if audience and user_id not in audience:
+                continue
+            actor_id = str(note.get("actorId") or "")
+            if actor_id.startswith("user-"):
+                actor_contractor = actor_id[5:]
+                if actor_contractor and actor_contractor not in contractor_ids:
+                    continue
+            visible.append(note)
+        scoped["notifications"] = visible
+
+    return scoped
+
+
 def scoped_data(data: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
-    """نسخة قراءة مقيّدة للمراقب؛ لا تغيّر الحالة الأصلية أو تخزن بيانات مفلترة."""
+    """نسخة قراءة مقيّدة للمراقب أو مدير الإدارة؛ لا تغيّر الحالة الأصلية."""
     roles = data.get("roles")
     if not is_housing_monitor(user, roles):
-        return data
+        return department_scoped_data(data, user)
     kind = monitor_housing_type(user, roles)
     scoped = dict(data)
     if not kind:
