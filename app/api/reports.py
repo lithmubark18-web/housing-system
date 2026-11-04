@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
 from app.api.deps import require_permission
+from app.core.permissions import has_permission
 from app.core.state import store
 from app.core.housing_scope import scoped_data
 from app.core.housing_scope import is_housing_monitor
@@ -54,9 +55,9 @@ def get_occupancy(user: dict[str, Any] = Depends(require_permission("reports.vie
 
 @router.get("/contractors")
 def get_contractors(user: dict[str, Any] = Depends(require_permission("reports.view"))):
+    data = scoped_data(store.read(), user)
     if is_housing_monitor(user, data.get("roles")):
         raise HTTPException(status_code=403, detail="تقرير المتعهدين مخصص لمدير النظام")
-    data = scoped_data(store.read(), user)
     return contractors_report(data)
 
 
@@ -149,6 +150,8 @@ def export_report(
     export_kind = clean_str(kind)
     if is_housing_monitor(user, data.get("roles")) and export_kind in {"buildings", "contractors", "requests"}:
         raise HTTPException(status_code=403, detail="هذا النوع من التصدير مخصص لمدير النظام")
+    if export_kind == "guests" and not has_permission(user, data.get("roles", []), "guests.view"):
+        raise HTTPException(status_code=403, detail="تصدير سجل الزوار مخصص لمدير النظام")
     on = _date_or_today(date)
     headers, rows, name = _export_rows(data, export_kind, on)
     content = build_csv(headers, rows)

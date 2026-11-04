@@ -390,7 +390,7 @@ def unlink_resident(data: dict[str, Any], resident: dict[str, Any], actor: dict[
 SETTING_KEYS = {
     "orgName", "orgSubtitle", "buildingLabel", "defaultPageSize",
     "lowVacancyThreshold", "notifyOnRequestStage", "notifyOnLowVacancy",
-    "requireEmployeeCode", "minWorkerAge",
+    "requireEmployeeCode", "minWorkerAge", "maxWorkerAge",
 }
 
 
@@ -400,7 +400,7 @@ def update_settings(data: dict[str, Any], payload: dict[str, Any], actor: dict[s
         if key not in payload:
             continue
         value = payload.get(key)
-        if key in {"defaultPageSize", "lowVacancyThreshold", "minWorkerAge"}:
+        if key in {"defaultPageSize", "lowVacancyThreshold", "minWorkerAge", "maxWorkerAge"}:
             settings[key] = max(1, int_value(value, int_value(settings.get(key), 1)))
         elif key in {"notifyOnRequestStage", "notifyOnLowVacancy", "requireEmployeeCode"}:
             settings[key] = payload.get(key) is not False
@@ -446,6 +446,8 @@ def contractor_portal(data: dict[str, Any], contractor_id: Any) -> dict[str, Any
 
     from app.services.housing import building_by_id, bed_by_id, room_by_id
 
+    from app.services.common import age_on, normalize_card
+
     worker_rows: list[dict[str, Any]] = []
     for worker in workers:
         row = dict(worker)
@@ -461,16 +463,62 @@ def contractor_portal(data: dict[str, Any], contractor_id: Any) -> dict[str, Any
             "buildingId": (room or {}).get("buildingId"),
             "housingType": normalize_housing_type((building or {}).get("housingType")),
         }
+        row["location"] = (
+            f"{row['housing']['buildingName']} • {row['housing']['roomName']} • {row['housing']['bedLabel']}"
+            if worker.get("bedId") else "غير مسكن"
+        )
+        # إخفاء العامل الذي قُدّم له طلب استدعاء/استبعاد (حتى لو معلّق) من قائمة العمال المسکّنين.
+        if onRemovalCall:
+            continue
         worker_rows.append(row)
+
+    # سجل العمال الكامل (سكان + مسجّلون غير ساكنين) مع كافة البيانات: الكود، البطاقة، الميلاد، السكن.
+    residents_by_card: dict[str, dict[str, Any]] = {}
+    for res in data.get("residents", []):
+        if str(res.get("contractorId")) != str(contractor_id):
+            continue
+        card_key = normalize_card(res.get("cardNumber"))
+        if card_key:
+            residents_by_card[card_key] = res
 
     registered_rows: list[dict[str, Any]] = []
     for w in data.get("contractorWorkers", []):
         if str(w.get("contractorId")) == str(contractor_id):
             row = dict(w)
+            card_key = normalize_card(row.get("cardNumber"))
+            matched_resident = residents_by_card.get(card_key)
+            if matched_resident:
+                # إثراء السجل بالكود الرسمي حتى لو كان الحقل موجوداً بقيمة فارغة.
+                if not clean_str(row.get("employeeCode")):
+                    row["employeeCode"] = clean_str(matched_resident.get("employeeCode"))
+                if not row.get("birthDate") and not row.get("workerBirthDate"):
+                    row["birthDate"] = matched_resident.get("birthDate")
+                if not clean_str(row.get("birthPlace")):
+                    row["birthPlace"] = clean_str(matched_resident.get("birthPlace"))
+                row["residentId"] = matched_resident.get("id")
+                bed = bed_by_id(data, matched_resident.get("bedId"))
+                room = room_by_id(data, bed.get("roomId")) if bed else None
+                building = building_by_id(data, room.get("buildingId")) if room else None
+                row["housing"] = {
+                    "bedLabel": clean_str((bed or {}).get("label")),
+                    "roomName": clean_str((room or {}).get("name")),
+                    "buildingName": clean_str((building or {}).get("name")),
+                    "buildingId": (room or {}).get("buildingId"),
+                    "housingType": normalize_housing_type((building or {}).get("housingType")),
+                }
+                row["location"] = (
+                    f"{row['housing']['buildingName']} • {row['housing']['roomName']} • {row['housing']['bedLabel']}"
+                    if matched_resident.get("bedId") else "غير مسكن"
+                )
+            else:
+                row["housing"] = None
+                row["location"] = "غير مسكن"
             row["onRemovalCall"] = (
                 f"card:{clean_str(row.get('cardNumber'))}" in removal_pending_keys
                 or f"name:{clean_str(row.get('fullName'))}" in removal_pending_keys
+                or f"card:{card_key}" in removal_pending_keys
             )
+            row["age"] = age_on(row.get("birthDate") or row.get("workerBirthDate"))
             registered_rows.append(row)
 
     names = sorted({
