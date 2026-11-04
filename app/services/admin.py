@@ -120,7 +120,12 @@ def create_user(data: dict[str, Any], payload: dict[str, Any], actor: dict[str, 
         "contractorId": contractor.get("id") if contractor else None,
         "contractorName": clean_str((contractor or {}).get("name")),
         "companyName": clean_str(payload.get("companyName")),
-        "department": clean_str(payload.get("department")) or clean_str((contractor or {}).get("department")),
+        # إدارة حساب المتعهد تُشتق دائماً من سجل المتعهد المرتبط به ولا تُقبل يدوياً.
+        "department": (
+            clean_str((contractor or {}).get("department"))
+            if contractor
+            else clean_str(payload.get("department"))
+        ),
         "permissionIds": [],
         "isActive": payload.get("isActive", True) is not False,
         "mustChangePassword": bool(payload.get("mustChangePassword")),
@@ -173,7 +178,14 @@ def update_user(data: dict[str, Any], user: dict[str, Any], payload: dict[str, A
         user["phone"] = clean_str(payload.get("phone"))
     if "companyName" in payload:
         user["companyName"] = clean_str(payload.get("companyName"))
-    if "department" in payload:
+    linked = contractor_by_id(data, user.get("contractorId")) if user.get("contractorId") else None
+    if str(user.get("roleId") or "") == "r_contractor" and not linked:
+        raise ServiceError("يجب ربط حساب المتعهد بمتعهد موجود")
+    if linked is not None:
+        # إدارة حساب المتعهد تُشتق من سجل المتعهد دائماً، وأي قيمة مرسلة يدوياً تُتجاهل.
+        user["department"] = clean_str(linked.get("department"))
+        user["contractorName"] = clean_str(linked.get("name"))
+    elif "department" in payload:
         user["department"] = clean_str(payload.get("department"))
     if "isActive" in payload:
         active = payload.get("isActive") is not False
@@ -350,6 +362,17 @@ def update_contractor(data: dict[str, Any], contractor: dict[str, Any], payload:
     if "bedQuota" in payload:
         contractor["bedQuota"] = max(0, int_value(payload.get("bedQuota")))
     contractor["updatedAt"] = now_iso()
+    # مصدر الحقيقة لإدارة الحساب هو سجل المتعهد: ننشرها فوراً على كل حسابات الدخول المرتبطة.
+    department = clean_str(contractor.get("department"))
+    contractor_name = clean_str(contractor.get("name"))
+    for linked_user in data.get("users", []):
+        if str(linked_user.get("contractorId")) != str(contractor.get("id")):
+            continue
+        if clean_str(linked_user.get("department")) != department:
+            linked_user["department"] = department
+        if clean_str(linked_user.get("contractorName")) != contractor_name:
+            linked_user["contractorName"] = contractor_name
+        linked_user["updatedAt"] = now_iso()
     add_audit(data, actor, "contractor_updated", "contractor", contractor.get("id"), {"name": contractor.get("name")})
     return contractor
 

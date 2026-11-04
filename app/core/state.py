@@ -323,6 +323,31 @@ def _apply_data_migrations(data: dict[str, Any]) -> bool:
     return changed
 
 
+def _sync_contractor_user_departments(data: dict[str, Any]) -> bool:
+    """ربط مباشر: إدارة حساب المتعهد تتبع إدارة المتعهد المرتبط به دائماً."""
+    changed = False
+    contractors = {
+        str(contractor.get("id")): contractor
+        for contractor in data.get("contractors", [])
+        if isinstance(contractor, dict) and contractor.get("id") is not None
+    }
+    for user in data.get("users", []):
+        if not isinstance(user, dict) or not user.get("contractorId"):
+            continue
+        contractor = contractors.get(str(user.get("contractorId")))
+        if not contractor:
+            continue
+        department = str(contractor.get("department") or "").strip()
+        if str(user.get("department") or "").strip() != department:
+            user["department"] = department
+            changed = True
+        contractor_name = str(contractor.get("name") or "").strip()
+        if str(user.get("contractorName") or "").strip() != contractor_name:
+            user["contractorName"] = contractor_name
+            changed = True
+    return changed
+
+
 def normalize_state(data: dict[str, Any]) -> bool:
     changed = False
     if not isinstance(data, dict):
@@ -354,6 +379,7 @@ def normalize_state(data: dict[str, Any]) -> bool:
     changed = _normalize_users(data) or changed
     changed = _ensure_contractors_departments(data) or changed
     changed = _apply_data_migrations(data) or changed
+    changed = _sync_contractor_user_departments(data) or changed
     changed = _ensure_buildings_housing_type(data) or changed
     return changed
 
