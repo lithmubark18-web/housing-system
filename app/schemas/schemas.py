@@ -50,6 +50,11 @@ class RejectRequest(BaseModel):
     notes: str = ""
 
 
+class SupervisorCodesRequest(BaseModel):
+    visitorCode: str = ""
+    housingCode: str = ""
+
+
 class RequestStatusRequest(BaseModel):
     status: str
     notes: str = ""

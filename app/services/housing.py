@@ -172,8 +172,89 @@ def contractor_payload(data: dict[str, Any], contractor: dict[str, Any]) -> dict
     return item
 
 
+def supervisor_codes(data: dict[str, Any], record: dict[str, Any]) -> dict[str, Any]:
+    """كود مراقب الزوار وكود مراقب السكن المرتبطان بسجل عامل.
+
+    الكودان يُخزَّنان على سجل الساكن/العامل عند اكتمال الاعتماد، ويُستكملان
+    من طلب الإضافة المطابق حتى تظهر البيانات القديمة دون الحاجة لتعديلها يدوياً.
+    """
+    visitor = clean_str(record.get("visitorCode")) or clean_str(record.get("employeeCode"))
+    housing = clean_str(record.get("housingCode"))
+    request_note = ""
+    if visitor and housing:
+        match: bool | None = visitor == housing
+    else:
+        match = None
+
+    contractor_id = clean_str(record.get("contractorId"))
+    card = normalize_card(record.get("cardNumber"))
+    name = clean_str(record.get("name")) or clean_str(record.get("fullName"))
+    resident_id = clean_str(record.get("id"))
+
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    for request in data.get("contractorRequests", []):
+        if clean_str(request.get("requestType")) != "new_worker":
+            continue
+        if contractor_id and clean_str(request.get("contractorId")) != contractor_id:
+            continue
+        if not (clean_str(request.get("employeeCode")) or clean_str(request.get("housingCode"))):
+            continue
+        # ترتيب الأولوية: معرّف الساكن ثم البطاقة ثم كود الزوار ثم الاسم.
+        if resident_id and clean_str(request.get("targetResidentId")) == resident_id:
+            score = 4
+        elif card and normalize_card(request.get("workerCardNumber")) == card:
+            score = 3
+        elif visitor and clean_str(request.get("employeeCode")) == visitor:
+            score = 2
+        elif name and not visitor and not card and clean_str(request.get("workerName")) == name:
+            score = 1
+        else:
+            score = 0
+        if score:
+            candidates.append((score, request))
+
+    if candidates:
+        candidates.sort(
+            key=lambda pair: (
+                pair[0],
+                clean_str(pair[1].get("reviewedAt")) or clean_str(pair[1].get("createdAt")),
+            ),
+            reverse=True,
+        )
+        request = candidates[0][1]
+        visitor = visitor or clean_str(request.get("employeeCode"))
+        housing = housing or clean_str(request.get("housingCode"))
+        request_note = clean_str(request.get("reviewNotes"))
+        if visitor and housing:
+            match = visitor == housing
+
+    parts: list[str] = []
+    if visitor or housing:
+        if match is not None:
+            parts.append("الأكواد مطابقة" if match else "الأكواد مختلفة")
+        parts.append(f"كود مراقب الزوار: {visitor or '—'}")
+        parts.append(f"كود مراقب السكن: {housing or 'لم يُدخل'}")
+    code_note = " · ".join(parts)
+    if request_note and request_note != code_note:
+        # تُعرض ملاحظة الاعتماد الكاملة إن كانت تحتوي تفاصيل إضافية (سبب/ملاحظة المراجع).
+        if "ملاحظة الأكواد" in request_note:
+            code_note = request_note
+        elif code_note:
+            code_note = f"{code_note} · {request_note}"
+        else:
+            code_note = request_note
+
+    return {
+        "visitorCode": visitor,
+        "housingCode": housing,
+        "codesMatch": match,
+        "codeNote": code_note,
+    }
+
+
 def resident_payload(data: dict[str, Any], resident: dict[str, Any], on: date | None = None) -> dict[str, Any]:
     item = dict(resident)
+    item.update(supervisor_codes(data, resident))
     building = building_by_id(data, resident.get("buildingId"))
     room = room_by_id(data, resident.get("roomId"))
     bed = bed_by_id(data, resident.get("bedId"))

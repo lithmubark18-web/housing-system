@@ -8,7 +8,7 @@ from fastapi.responses import Response
 from app.api.deps import get_current_user, require_any_permission, require_permission
 from app.core.state import store
 from app.core.housing_scope import scoped_data
-from app.schemas.schemas import AssignBedRequest, BulkAssignRequest, BulkResidentsRequest
+from app.schemas.schemas import AssignBedRequest, BulkAssignRequest, BulkResidentsRequest, SupervisorCodesRequest
 from app.services.common import (
     ServiceError,
     attendance_status,
@@ -32,6 +32,7 @@ from app.services.housing import (
     update_resident,
     used_bed_ids,
 )
+from app.services.contractor_requests import set_supervisor_codes
 
 router = APIRouter(prefix="/api/residents", tags=["residents"])
 
@@ -209,6 +210,37 @@ def resident_history(resident_id: str, user: dict[str, Any] = Depends(require_pe
         if item.get("entity") == "resident" and str(item.get("entityId")) == str(resident_id)
     ]
     return {"items": rows, "total": len(rows)}
+
+
+@router.post("/{resident_id}/supervisor-codes")
+def save_supervisor_codes(
+    resident_id: str,
+    payload: SupervisorCodesRequest,
+    user: dict[str, Any] = Depends(
+        require_any_permission(
+            "residents.manage",
+            "requests.housing_internal",
+            "requests.housing_external",
+        )
+    ),
+):
+    """استكمال/تصحيح كود مراقب الزوار وكود مراقب السكن لسجل عامل قائم."""
+    with store.atomic() as data:
+        scoped = scoped_data(data, user)
+        resident = resident_by_id(scoped, resident_id)
+        if not resident:
+            raise HTTPException(status_code=404, detail="الساكن غير موجود")
+        target = resident_by_id(data, resident_id)
+        if not target:
+            raise HTTPException(status_code=404, detail="الساكن غير موجود")
+        result = set_supervisor_codes(
+            data,
+            target,
+            user,
+            visitor_code=payload.visitorCode,
+            housing_code=payload.housingCode,
+        )
+        return {**resident_payload(data, target), **result}
 
 
 @router.post("", status_code=201)

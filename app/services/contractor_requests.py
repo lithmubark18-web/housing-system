@@ -336,6 +336,8 @@ def _execute_add(
     resident = {
         "id": new_id("u"),
         "employeeCode": employee_code,
+        "visitorCode": employee_code,
+        "housingCode": clean_str(request.get("housingCode")),
         "name": clean_str(request.get("workerName")),
         "jobTitle": clean_str(request.get("jobTitle")) or "عامل متعهد",
         "company": clean_str(request.get("contractorName")),
@@ -368,6 +370,7 @@ def _execute_add(
     data.setdefault("residents", []).insert(0, resident)
     request["bedId"] = bed.get("id")
     request["buildingId"] = room.get("buildingId")
+    request["targetResidentId"] = resident.get("id")
     _upsert_registered_worker(data, request, status="assigned", building_id=room.get("buildingId"), room_id=room.get("id"), bed_id=bed.get("id"))
     add_audit(
         data, actor, "contractor_worker_housed", "resident", resident["id"],
@@ -428,6 +431,8 @@ def _upsert_registered_worker(
             worker.update({
                 "fullName": name,
                 "employeeCode": clean_str(request.get("employeeCode")),
+                "visitorCode": clean_str(request.get("employeeCode")),
+                "housingCode": clean_str(request.get("housingCode")),
                 "jobTitle": clean_str(request.get("jobTitle")),
                 "status": status,
                 "gateStatus": "approved",
@@ -447,6 +452,8 @@ def _upsert_registered_worker(
         "fullName": name,
         "jobTitle": clean_str(request.get("jobTitle")),
         "employeeCode": clean_str(request.get("employeeCode")),
+        "visitorCode": clean_str(request.get("employeeCode")),
+        "housingCode": clean_str(request.get("housingCode")),
         "status": status,
         "gateStatus": "approved",
         "awarenessStatus": "completed",
@@ -459,6 +466,172 @@ def _upsert_registered_worker(
         "createdAt": now_iso(),
         "updatedAt": now_iso(),
     })
+
+
+def _apply_supervisor_codes(data: dict[str, Any], request: dict[str, Any]) -> None:
+    """تثبيت كودي مراقب الزوار ومراقب السكن على سجل الساكن وسجل العامل."""
+    visitor = clean_str(request.get("employeeCode"))
+    housing = clean_str(request.get("housingCode"))
+    note = clean_str(request.get("reviewNotes"))
+    if not (visitor or housing):
+        return
+    target_id = clean_str(request.get("targetResidentId"))
+    card = normalize_card(request.get("workerCardNumber"))
+    name = clean_str(request.get("workerName"))
+    contractor_id = clean_str(request.get("contractorId"))
+
+    # أولوية المطابقة: معرّف الساكن ثم البطاقة ثم كود الزوار ثم الاسم (لتجنّب
+    # تطبيق الأكواد على سجل آخر يحمل نفس كود الموظف).
+    resident_candidates: list[tuple[int, dict[str, Any]]] = []
+    for resident in data.get("residents", []):
+        if contractor_id and clean_str(resident.get("contractorId")) != contractor_id:
+            continue
+        if target_id and clean_str(resident.get("id")) == target_id:
+            score = 4
+        elif card and normalize_card(resident.get("cardNumber")) == card:
+            score = 3
+        elif visitor and clean_str(resident.get("employeeCode")) == visitor:
+            score = 2
+        elif name and clean_str(resident.get("name")) == name:
+            score = 1
+        else:
+            score = 0
+        if score:
+            resident_candidates.append((score, resident))
+    if resident_candidates:
+        resident_candidates.sort(key=lambda pair: pair[0], reverse=True)
+        resident = resident_candidates[0][1]
+        if visitor:
+            resident["visitorCode"] = visitor
+        if housing:
+            resident["housingCode"] = housing
+        if note:
+            resident["codeNote"] = note
+
+    worker_candidates: list[tuple[int, dict[str, Any]]] = []
+    for worker in data.get("contractorWorkers", []):
+        if contractor_id and clean_str(worker.get("contractorId")) != contractor_id:
+            continue
+        if card and normalize_card(worker.get("cardNumber")) == card:
+            score = 3
+        elif visitor and clean_str(worker.get("employeeCode")) == visitor:
+            score = 2
+        elif name and clean_str(worker.get("fullName")) == name:
+            score = 1
+        else:
+            score = 0
+        if score:
+            worker_candidates.append((score, worker))
+    if worker_candidates:
+        worker_candidates.sort(key=lambda pair: pair[0], reverse=True)
+        worker = worker_candidates[0][1]
+        if visitor:
+            worker["visitorCode"] = visitor
+        if housing:
+            worker["housingCode"] = housing
+        if note:
+            worker["codeNote"] = note
+
+
+def _matching_add_request(data: dict[str, Any], record: dict[str, Any]) -> dict[str, Any] | None:
+    """أحدث طلب إضافة مطابق لسجل العامل (لربط أكواد المراقبين)."""
+    resident_id = clean_str(record.get("id"))
+    card = normalize_card(record.get("cardNumber"))
+    code = clean_str(record.get("employeeCode")) or clean_str(record.get("visitorCode"))
+    contractor_id = clean_str(record.get("contractorId"))
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    name = clean_str(record.get("name")) or clean_str(record.get("fullName"))
+    for request in data.get("contractorRequests", []):
+        if clean_str(request.get("requestType")) != "new_worker":
+            continue
+        if contractor_id and clean_str(request.get("contractorId")) != contractor_id:
+            continue
+        if resident_id and clean_str(request.get("targetResidentId")) == resident_id:
+            score = 4
+        elif card and normalize_card(request.get("workerCardNumber")) == card:
+            score = 3
+        elif code and clean_str(request.get("employeeCode")) == code:
+            score = 2
+        elif name and clean_str(request.get("workerName")) == name:
+            score = 1
+        else:
+            score = 0
+        if score:
+            candidates.append((score, request))
+    candidates.sort(
+        key=lambda pair: (
+            pair[0],
+            clean_str(pair[1].get("reviewedAt")) or clean_str(pair[1].get("createdAt")),
+        ),
+        reverse=True,
+    )
+    return candidates[0][1] if candidates else None
+
+
+def code_note_text(visitor: str, housing: str) -> str:
+    """نص ملاحظة الأكواد الموحّد الذي يظهر في الطلب وعلى سجل العامل."""
+    visitor = clean_str(visitor)
+    housing = clean_str(housing)
+    if not (visitor or housing):
+        return ""
+    if visitor and housing:
+        verdict = "الأكواد مطابقة" if visitor == housing else "الأكواد مختلفة"
+        return (
+            f"ملاحظة الأكواد: {verdict} "
+            f"(كود مراقب الزوار: {visitor} — كود مراقب السكن: {housing})"
+        )
+    if visitor:
+        return f"ملاحظة الأكواد: كود مراقب الزوار: {visitor} — كود مراقب السكن: لم يُدخل"
+    return f"ملاحظة الأكواد: كود مراقب السكن: {housing} — كود مراقب الزوار: لم يُدخل"
+
+
+def set_supervisor_codes(
+    data: dict[str, Any],
+    record: dict[str, Any],
+    actor: dict[str, Any],
+    *,
+    visitor_code: str = "",
+    housing_code: str = "",
+) -> dict[str, Any]:
+    """استكمال/تصحيح كودي مراقب الزوار ومراقب السكن لسجل عامل قائم."""
+    request = _matching_add_request(data, record)
+    visitor = clean_str(visitor_code) or clean_str(record.get("visitorCode")) or clean_str(record.get("employeeCode"))
+    housing = clean_str(housing_code) or clean_str(record.get("housingCode"))
+    if request:
+        visitor = visitor or clean_str(request.get("employeeCode"))
+        housing = housing or clean_str(request.get("housingCode"))
+    if clean_str(visitor_code):
+        visitor = clean_str(visitor_code)
+    if clean_str(housing_code):
+        housing = clean_str(housing_code)
+    if not (visitor or housing):
+        raise ServiceError("يرجى إدخال كود واحد على الأقل")
+
+    note = code_note_text(visitor, housing)
+    if request:
+        base = clean_str(request.get("reviewNotes"))
+        if "ملاحظة الأكواد:" in base:
+            base = base.split("ملاحظة الأكواد:")[0].rstrip(" ·")
+        request["employeeCode"] = visitor
+        request["housingCode"] = housing
+        request["reviewNotes"] = f"{base} · {note}".strip(" ·")
+        _apply_supervisor_codes(data, request)
+    else:
+        record["visitorCode"] = visitor
+        if housing:
+            record["housingCode"] = housing
+        record["codeNote"] = note
+
+    add_audit(
+        data, actor, "supervisor_codes_updated", "resident", record.get("id"),
+        {"worker": record.get("name"), "visitorCode": visitor, "housingCode": housing},
+    )
+    return {
+        "visitorCode": visitor,
+        "housingCode": housing,
+        "codesMatch": (visitor == housing) if (visitor and housing) else None,
+        "codeNote": note,
+    }
 
 
 def approve_request(
@@ -496,19 +669,27 @@ def approve_request(
         bed_id_clean = clean_str(bed_id) or clean_str(request.get("bedId"))
         if not bed_id_clean:
             raise ServiceError("يرجى تحديد السرير المتاح قبل الاعتماد")
-        _execute_add(data, request, actor, bed_id=bed_id_clean)
-        # كود مراقب السكن: يُقارن بكود مراقب الزوار وتُثبَّت نتيجة المطابقة في الملاحظات.
+        # كود مراقب السكن مطلوب عند اعتماد السكن، ويُقارن بكود مراقب الزوار.
         monitor_code = clean_str(housing_code) or clean_str(request.get("housingCode"))
-        if monitor_code:
-            request["housingCode"] = monitor_code
-            visitor_code = clean_str(request.get("employeeCode"))
-            if visitor_code:
+        if not monitor_code:
+            raise ServiceError("يرجى إدخال كود مراقب السكن قبل اعتماد السكن", 409)
+        _execute_add(data, request, actor, bed_id=bed_id_clean)
+        request["housingCode"] = monitor_code
+        visitor_code = clean_str(request.get("employeeCode"))
+        if visitor_code:
+            if monitor_code:
                 verdict = "الأكواد مطابقة" if visitor_code == monitor_code else "الأكواد مختلفة"
-                prepared = clean_str(notes)
-                notes = (
-                    f"{prepared} · ملاحظة الأكواد: {verdict} "
+                codes_note = (
+                    f"ملاحظة الأكواد: {verdict} "
                     f"(كود مراقب الزوار: {visitor_code} — كود مراقب السكن: {monitor_code})"
-                ).strip(" ·")
+                )
+            else:
+                codes_note = (
+                    f"ملاحظة الأكواد: كود مراقب الزوار: {visitor_code} — "
+                    "كود مراقب السكن: لم يُدخل"
+                )
+            prepared = clean_str(notes)
+            notes = f"{prepared} · {codes_note}".strip(" ·")
     elif stage == "visitor" and not is_add:
         _execute_remove(data, request, actor)
 
@@ -527,6 +708,9 @@ def approve_request(
 
     request["reviewedAt"] = now_iso()
     request["reviewNotes"] = clean_str(notes)
+    if is_add:
+        # إظهار الكودين على سجل العامل وفي الملاحظة.
+        _apply_supervisor_codes(data, request)
     # عند اكتمال الاعتماد (أو الرفض) يُولَّد رقم النموذج الرسمي لمرة واحدة ويُحتفظ به للأرشفة.
     if request.get("stage") in {"done", "rejected"} and not clean_str(request.get("formNo")):
         request["formNo"] = new_id("FR-")

@@ -444,13 +444,15 @@ def contractor_portal(data: dict[str, Any], contractor_id: Any) -> dict[str, Any
             or f"card:{clean_str(worker.get('cardNumber'))}" in removal_pending_keys
         )
 
-    from app.services.housing import building_by_id, bed_by_id, room_by_id
+    from app.services.housing import building_by_id, bed_by_id, room_by_id, supervisor_codes
 
     from app.services.common import age_on, normalize_card
 
     worker_rows: list[dict[str, Any]] = []
     for worker in workers:
         row = dict(worker)
+        row.update(supervisor_codes(data, worker))
+        row["age"] = age_on(worker.get("birthDate"))
         onRemovalCall = is_removal_pending(worker)
         row["onRemovalCall"] = onRemovalCall
         bed = bed_by_id(data, worker.get("bedId"))
@@ -513,6 +515,15 @@ def contractor_portal(data: dict[str, Any], contractor_id: Any) -> dict[str, Any
             else:
                 row["housing"] = None
                 row["location"] = "غير مسكن"
+            lookup = dict(w)
+            lookup["name"] = w.get("fullName")
+            if matched_resident:
+                for key in ("id", "contractorId", "cardNumber", "employeeCode", "visitorCode", "housingCode"):
+                    if matched_resident.get(key):
+                        lookup[key] = matched_resident.get(key)
+            row.update(supervisor_codes(data, lookup))
+            if not clean_str(row.get("employeeCode")):
+                row["employeeCode"] = clean_str(row.get("visitorCode"))
             row["onRemovalCall"] = (
                 f"card:{clean_str(row.get('cardNumber'))}" in removal_pending_keys
                 or f"name:{clean_str(row.get('fullName'))}" in removal_pending_keys
