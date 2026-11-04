@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  AlertTriangle,
   ArrowLeftRight,
   BedDouble,
   BookOpen,
@@ -8,15 +9,19 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Database,
+  Hammer,
   Handshake,
   KeyRound,
   Layers,
   LogIn,
   ShieldCheck,
   Smartphone,
+  Sparkles,
   UserRound,
   UsersRound,
   WifiOff,
+  Wrench,
+  Zap,
 } from "lucide-react";
 import { formatNumber } from "@/lib/format";
 import { can, canAny, roleLabel } from "@/lib/permissions";
@@ -87,6 +92,80 @@ const REMOVE_WORKFLOW = [
   { title: "الأمن", text: "مراجعة المخالصة والمغادرة", permission: "requests.security" },
   { title: "الزوار", text: "إغلاق الملف وإلغاء التصريح", permission: "requests.visitor" },
   { title: "مكتمل", text: "إشعار المتعهد وتحرير السرير", permission: "" },
+];
+
+const HOUSING_CARE = [
+  {
+    icon: Sparkles,
+    title: "النظافة اليومية",
+    items: [
+      "إبقاء الغرفة والسرير والممرات والحمامات والمرافق المشتركة نظيفة باستمرار.",
+      "وضع النفايات في الحاويات المخصصة وعدم تركها أمام الغرف أو في الممرات.",
+      "عدم تخزين الأطعمة المكشوفة أو الأدوات التي تجذب الحشرات والقوارض.",
+      "تنظيف مكان إعداد الطعام وتناول الطعام فور الانتهاء منه.",
+    ],
+  },
+  {
+    icon: ShieldCheck,
+    title: "السلامة العامة",
+    items: [
+      "منع التدخين داخل الغرف والممرات والمرافق المشتركة.",
+      "منع إدخال أو تخزين مواد قابلة للاشتعال أو أسطوانات غاز داخل السكن.",
+      "منع استخدام أجهزة طبخ أو تسخين غير مسموحة داخل الغرف.",
+      "عدم إشغال مخارج الطوارئ أو وضع أي عوائق أمامها.",
+      "إبلاغ الأمن فوراً عن أي حريق أو تسرب أو خطر محتمل.",
+    ],
+  },
+  {
+    icon: Hammer,
+    title: "الأثاث والتجهيزات",
+    items: [
+      "عدم نقل الأسرّة أو الخزائن أو المكيفات من مكانها دون إذن مراقب السكن.",
+      "عدم ثقب الجدران أو تركيب أرفف أو أجهزة أو توصيلات كهربائية إضافية.",
+      "المحافظة على المفاتيح والبطاقات وعدم تسليمها لغير العامل المسجل.",
+      "الإبلاغ عن أي تلف فور حدوثه بدل محاولة إصلاحه ذاتياً.",
+    ],
+  },
+  {
+    icon: Zap,
+    title: "الكهرباء والمياه",
+    items: [
+      "إطفاء الأنوار والمكيفات والمراوح عند مغادرة الغرفة.",
+      "إغلاق الصنابير جيداً وعدم إهدار المياه.",
+      "عدم تشغيل أجهزة ذات قدرة عالية أو ربط وصلات كهربائية متعددة معاً.",
+      "إبلاغ مراقب السكن فوراً عن أي تسرب مياه أو عطل كهربائي.",
+    ],
+  },
+  {
+    icon: UsersRound,
+    title: "الانضباط والاستخدام",
+    items: [
+      "الالتزام بالسرير والغرفة المخصصين وعدم تغييرهما أو تبادلهما مع الآخرين.",
+      "عدم استضافة أشخاص غير مسجلين أو المبيت خارج النطاق المخصص.",
+      "الالتزام بأوقات الهدوء وعدم إزعاج بقية السكان.",
+      "التعاون مع مراقب السكن والأمن وإظهار البطاقة عند الطلب.",
+    ],
+  },
+  {
+    icon: AlertTriangle,
+    title: "المسؤولية عند الإضرار",
+    items: [
+      "المتعهد/المقاول مسؤول عن أي أضرار يسببها عماله في المبنى أو التجهيزات.",
+      "تتحمل الشركة تكلفة الإصلاح أو الاستبدال عند إثبات الإهمال أو سوء الاستخدام.",
+      "تكرار المخالفات يعرّض العامل للاستبعاد ويُسجّل في ملف المتعهد.",
+      "عند إخلاء العامل يُسلّم السرير والعهدة بحالة جيدة قبل مغادرة السكن.",
+    ],
+  },
+  {
+    icon: Wrench,
+    title: "الإبلاغ والمتابعة",
+    items: [
+      "تسجيل أي عطل أو مخالفة عبر مراقب السكن أو صفحة الطلبات.",
+      "متابعة طلب الإصلاح حتى إغلاقه والتأكد من إتمام العمل.",
+      "إبلاغ المتعهد عن أي تغيير في عدد العمال أو مواقعهم.",
+      "الالتزام بتعليمات إدارة السكن والدفاع المدني في الحالات الطارئة.",
+    ],
+  },
 ];
 
 const DEMO_ACCOUNTS = [
@@ -199,6 +278,9 @@ export default function AboutPage() {
       "requests.housing_internal",
       "requests.housing_external",
     ]);
+
+  // تعليمات الحفاظ على السكن تظهر للمتعهدين والمقاولين (ولمدير النظام لمراجعتها).
+  const showHousingCare = isAdminView || can(user, "contractor.portal") || can(user, "contractors.manage");
 
   const permissions = data.permissions || [];
   const grouped = new Map<string, Array<{ id: string; label: string }>>();
@@ -371,6 +453,35 @@ export default function AboutPage() {
           )}
         </div>
       </section>
+
+      {showHousingCare && (
+      <section className="section">
+        <SectionTitle
+          title="تعليمات الحفاظ على السكن"
+          hint="التزامات المتعهد/المقاول وعماله داخل السكن — يُرجى الالتزام بها حرفياً"
+        />
+        <div className="guide-grid guide-grid-3">
+          {HOUSING_CARE.map((group) => (
+            <article className="guide-card account-card" key={group.title}>
+              <span className="guide-icon"><group.icon size={18} /></span>
+              <h3>{group.title}</h3>
+              <ul className="feature-list">
+                {group.items.map((item) => (
+                  <li key={item}><CheckCircle2 size={15} /><span>{item}</span></li>
+                ))}
+              </ul>
+            </article>
+          ))}
+        </div>
+        <div className="alert warning">
+          <AlertTriangle size={16} />
+          <span>
+            أي إخلال بهذه التعليمات قد يؤدي إلى استبعاد العامل، أو تحميل المتعهد/المقاول تكاليف الإصلاح والاستبدال،
+            أو اتخاذ الإجراءات النظامية بحق المخالف. الحفاظ على السكن مسؤولية مشتركة بين المتعهد وعماله وإدارة السكن.
+          </span>
+        </div>
+      </section>
+      )}
 
       {isAdminView && (
       <section className="section">
