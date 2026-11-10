@@ -312,6 +312,112 @@ def create_request(
     return item
 
 
+def update_request(
+    data: dict[str, Any],
+    request: dict[str, Any],
+    payload: dict[str, Any],
+    actor: dict[str, Any] | None = None,
+    *,
+    forced_contractor_id: Any = None,
+) -> dict[str, Any]:
+    """تعديل طلب المتعهد قبل اعتماد مدير الإدارة فقط، مع إعادة التحقق من البيانات."""
+    if request.get("stage") != "department":
+        raise ServiceError("لا يمكن تعديل الطلب بعد اعتماد مدير الإدارة", 409)
+    contractor_id = request.get("contractorId")
+    if forced_contractor_id is not None and str(forced_contractor_id) != str(contractor_id):
+        raise ServiceError("لا تملك صلاحية تعديل هذا الطلب", 403)
+    contractor = contractor_by_id(data, contractor_id)
+    if not contractor:
+        raise ServiceError("المتعهد/المقاول غير موجود", 404)
+
+    request_type = clean_str(request.get("requestType")) or "new_worker"
+    worker_name = clean_str(payload.get("workerName"))
+    if not worker_name:
+        raise ServiceError("يرجى إدخال اسم العامل")
+    raw_card = clean_str(payload.get("workerCardNumber")) or clean_str(request.get("workerCardNumber"))
+    card = normalize_card(raw_card)
+    job_title = clean_str(payload.get("jobTitle"))
+    birth_date = payload.get("workerBirthDate") or request.get("workerBirthDate")
+    birth_place = clean_str(payload.get("workerBirthPlace")) or clean_str(request.get("workerBirthPlace"))
+    reason = clean_str(payload.get("reason"))
+    target_resident_id = clean_str(request.get("targetResidentId")) or None
+
+    if request_type == "new_worker":
+        if not card:
+            raise ServiceError("يرجى إدخال رقم البطاقة")
+        if not parse_date(birth_date):
+            raise ServiceError("يرجى تحديد تاريخ الميلاد")
+        if not birth_place:
+            raise ServiceError("يرجى إدخال مكان الميلاد")
+        age = age_on(birth_date)
+        if age is not None and age < min_worker_age(data):
+            raise ServiceError(f"لا يسمح بإضافة موظف أقل من {min_worker_age(data)} عاماً", 409)
+        max_age = max_worker_age(data)
+        if max_age and age is not None and age > max_age:
+            raise ServiceError(f"لا يسمح بإضافة موظف أكبر من {max_age} عاماً — بين من {min_worker_age(data)} إلى {max_age} عاماً", 409)
+        for resident in data.get("residents", []):
+            if normalize_card(resident.get("cardNumber")) == card:
+                raise ServiceError("يوجد مقيم مسجّل بنفس رقم البطاقة مسبقاً", 409)
+        for existing in data.get("contractorRequests", []):
+            if existing is request:
+                continue
+            if (
+                existing.get("requestType") == "new_worker"
+                and existing.get("stage") not in {"done", "rejected"}
+                and normalize_card(existing.get("workerCardNumber")) == card
+            ):
+                raise ServiceError("يوجد طلب إضافة قيد الاعتماد لنفس رقم البطاقة مسبقاً", 409)
+        previous_exclusions = previous_exclusions_for(data, card)
+    else:
+        matched = _find_worker(data, {
+            "contractorId": contractor_id,
+            "workerCardNumber": card,
+            "employeeCode": clean_str(request.get("employeeCode")),
+            "workerName": worker_name,
+        })
+        if not matched:
+            raise ServiceError("العامل غير موجود ضمن عمالة المتعهد", 404)
+        target_resident_id = clean_str(matched[0].get("id"))
+        for existing in data.get("contractorRequests", []):
+            if existing is request:
+                continue
+            if (
+                existing.get("contractorId") == contractor_id
+                and existing.get("requestType") == "remove_worker"
+                and existing.get("stage") not in {"done", "rejected"}
+                and (
+                    normalize_card(existing.get("workerCardNumber")) == card
+                    or clean_str(existing.get("workerName")) == worker_name
+                )
+            ):
+                raise ServiceError("يوجد طلب استبعاد قيد الاعتماد لهذا العامل مسبقاً", 409)
+        previous_exclusions = request.get("previousExclusions") or []
+
+    request.update({
+        "workerName": worker_name,
+        "jobTitle": job_title,
+        "workerCardNumber": raw_card,
+        "workerBirthDate": birth_date or None,
+        "workerBirthPlace": birth_place,
+        "reason": reason,
+        "targetResidentId": target_resident_id,
+        "previousExclusions": previous_exclusions,
+        "updatedAt": now_iso(),
+    })
+    request.setdefault("history", []).append({
+        "at": now_iso(),
+        "action": "updated",
+        "stage": request.get("stage"),
+        "by": clean_str((actor or {}).get("name")),
+        "notes": "تعديل بيانات الطلب من المتعهد",
+    })
+    add_audit(
+        data, actor, "contractor_request_updated", "contractor_request", request.get("id"),
+        {"worker": worker_name, "type": request_type, "contractor": clean_str(contractor.get("name"))},
+    )
+    return request
+
+
 def _execute_add(
     data: dict[str, Any],
     request: dict[str, Any],

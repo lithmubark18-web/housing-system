@@ -27,6 +27,7 @@ from app.services.contractor_requests import (
     pending_counts,
     reject_request,
     request_payload,
+    update_request,
 )
 
 router = APIRouter(prefix="/api/contractor-requests", tags=["contractor-requests"])
@@ -207,6 +208,29 @@ def add_request(payload: dict[str, Any], user: dict[str, Any] = Depends(get_curr
     with store.atomic() as state:
         item = create_request(state, payload, user, forced_contractor_id=forced)
         return request_payload(state, item)
+
+
+@router.put("/{request_id}")
+@router.patch("/{request_id}")
+def edit_request(
+    request_id: str,
+    payload: dict[str, Any],
+    user: dict[str, Any] = Depends(get_current_user),
+):
+    """تعديل طلب المتعهد قبل اعتماد مدير الإدارة (المالك أو إدارة السكن/المتعهدين)."""
+    data = scoped_data(store.read(), user)
+    scope = _scope(data, user)
+    forced = scope.get("contractorId") if scope else None
+    item = _find(data, request_id)
+    if forced:
+        if str(item.get("contractorId")) != str(forced):
+            raise HTTPException(status_code=403, detail="لا تملك صلاحية تعديل هذا الطلب")
+    elif not (set(effective_permissions(user, data.get("roles", []))) & {"contractors.manage", "housing.manage"}):
+        raise HTTPException(status_code=403, detail="لا تملك صلاحية تعديل طلب متعهد")
+    with store.atomic() as state:
+        current = _find(state, request_id)
+        updated = update_request(state, current, payload, user, forced_contractor_id=forced)
+        return request_payload(state, updated)
 
 
 @router.post("/{request_id}/approve")
