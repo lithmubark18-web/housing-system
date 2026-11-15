@@ -12,6 +12,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api import (
     admin,
+    app_updates,
     auth,
     bootstrap,
     contractor_requests,
@@ -110,6 +111,7 @@ for module in (
     notifications,
     admin,
     search,
+    app_updates,
 ):
     app.include_router(module.router)
 
